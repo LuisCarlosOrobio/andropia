@@ -7,6 +7,7 @@
     <h1>Audio Recorder</h1>
     <button id="recordButton">Record</button>
     <button id="stopButton" disabled>Stop</button>
+    <p id="transcribedText"></p>
 
     <script>
         const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
@@ -20,17 +21,12 @@
         };
 
         mainBackendWebSocket.onmessage = function(event) {
-            const message = JSON.parse(event.data);
-            if (message.taskId) {
-                checkTaskStatus(message.taskId); // Start polling the task status
-            } else if (message.transcribedText) {
-                console.log('Transcribed Text:', message.transcribedText); // Log the transcribed text to the console
-            }
+                const message = JSON.parse(event.data);
+                if (message.text) {
+                        console.log('Transcribed Text:', message.text);
+                        document.getElementById('transcribedText').innerText = message.text;
+                }
         };
-
-        function checkTaskStatus(taskId) {
-            // Polling is now handled by the main backend, so nothing to do here.
-        }
 
         const getMediaRecorder = (stream) => {
             const mediaRecorder = new MediaRecorder(stream);
