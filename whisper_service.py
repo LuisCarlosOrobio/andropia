@@ -15,6 +15,14 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 app = FastAPI()
 
+app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+)
+
 # Initialize Whisper model
 MODEL_NAME = "openai/whisper-large-v2"
 whisper_pipeline = FlaxWhisperPipline(MODEL_NAME, dtype=jnp.bfloat16, batch_size=16)
@@ -38,20 +46,29 @@ def transcribe_audio_task(file_path):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    while True:
-        # Receive audio file as binary data
-        audio_data = await websocket.receive_bytes()
+    try:
+        while True:
+            # Receive audio file as binary data
+            audio_data = await websocket.receive_bytes()
 
-        # Save the audio data to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-            temp_file.write(audio_data)
-            temp_file_path = temp_file.name
+            # Save the audio data to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                temp_file.write(audio_data)
+                temp_file_path = temp_file.name
 
-        # Enqueue the transcription task
-        job = queue.enqueue('transcribe_audio_task', temp_file_path)
+            # Enqueue the transcription task
+            job = queue.enqueue('transcribe_audio_task', temp_file_path)
 
-        # Send the task ID back through WebSocket
-        await websocket.send_text(job.get_id())
+            # Send the task ID back through WebSocket
+            await websocket.send_text(job.get_id())
+
+    except WebSocketDisconnect as e:
+        if e.code == 1000:
+            print("Normal WebSocket disconnection.")
+        else:
+            print(f"WebSocket disconnected with error code: {e.code}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 # Endpoint to get task status
 @app.get("/status/{task_id}")
