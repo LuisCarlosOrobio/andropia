@@ -10,7 +10,7 @@
     <p id="transcribedText"></p> <!-- Element to display transcribed text -->
 
     <script>
-        const mainBackendWebSocketUrl = 'ws://' + window.location.host + '/ws';
+        const mainBackendWebSocketUrl = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
         const mainBackendWebSocket = new WebSocket(mainBackendWebSocketUrl);
 
         mainBackendWebSocket.onopen = function(event) {
