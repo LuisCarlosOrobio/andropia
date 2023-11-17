@@ -21,12 +21,46 @@
             console.error('WebSocket error:', error);
         };
 
-        // ... (rest of your existing frontend code)
+        mainBackendWebSocket.onmessage = function(event) {
+            console.log('Transcribed text received:', event.data);
+            document.getElementById('transcribedText').innerText = event.data;
+        };
+
+        const getMediaRecorder = (stream) => {
+            const mediaRecorder = new MediaRecorder(stream);
+            let audioChunks = [];
+
+            mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                console.log(`Audio Blob size: ${audioBlob.size} bytes`);
+                mainBackendWebSocket.send(audioBlob);
+                console.log('Audio data sent via WebSocket.');
+            };
+
+            return mediaRecorder;
+        };
+
+        document.getElementById("recordButton").addEventListener("click", () => {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const mediaRecorder = getMediaRecorder(stream);
+                    mediaRecorder.start();
+                    document.getElementById("stopButton").disabled = false;
+                    document.getElementById("recordButton").disabled = true;
+                    document.getElementById("stopButton").onclick = () => {
+                        mediaRecorder.stop();
+                        document.getElementById("stopButton").disabled = true;
+                        document.getElementById("recordButton").disabled = false;
+                    };
+                })
+                .catch(err => console.error("Error accessing media devices:", err));
+        });
 
         // Function to poll the status of the transcription task
         async function checkTaskStatus(taskId) {
             try {
-                const response = await fetch(`/status/${taskId}`);
+                const response = await fetch(`http://localhost:5000/status/${taskId}`);
                 const data = await response.json();
                 if (data.status === 'SUCCESS') {
                     getTaskResult(taskId);
@@ -44,7 +78,7 @@
         // Function to retrieve the transcribed text using the task ID
         async function getTaskResult(taskId) {
             try {
-                const response = await fetch(`/result/${taskId}`);
+                const response = await fetch(`http://localhost:5000/result/${taskId}`);
                 const data = await response.json();
                 if (data.status === 'SUCCESS') {
                     // Display the transcribed text on the frontend
