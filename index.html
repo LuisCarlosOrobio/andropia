@@ -10,21 +10,28 @@
     <p id="transcribedText"></p> <!-- Element to display transcribed text -->
 
     <script>
-        const mainBackendWebSocketUrl = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
-        const mainBackendWebSocket = new WebSocket(mainBackendWebSocketUrl);
+        const mainBackendWebSocket = new WebSocket('ws://' + window.location.host + '/ws');
 
         mainBackendWebSocket.onopen = function(event) {
-            console.log('WebSocket connection to Main backend established.');
+            console.log('Connected to the WebSocket.');
         };
 
         mainBackendWebSocket.onerror = function(error) {
-            console.error('WebSocket error:', error);
+            console.error('WebSocket Error:', error);
         };
 
         mainBackendWebSocket.onmessage = function(event) {
-            console.log('Transcribed text received:', event.data);
-            document.getElementById('transcribedText').innerText = event.data;
+            const message = JSON.parse(event.data);
+            if (message.taskId) {
+                checkTaskStatus(message.taskId); // Start polling the task status
+            } else if (message.transcribedText) {
+                document.getElementById('transcribedText').innerText = message.transcribedText;
+            }
         };
+
+        function checkTaskStatus(taskId) {
+            // Polling is now handled by the main backend, so nothing to do here.
+        }
 
         const getMediaRecorder = (stream) => {
             const mediaRecorder = new MediaRecorder(stream);
@@ -33,9 +40,7 @@
             mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
             mediaRecorder.onstop = () => {
                 const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                console.log(`Audio Blob size: ${audioBlob.size} bytes`);
                 mainBackendWebSocket.send(audioBlob);
-                console.log('Audio data sent via WebSocket.');
             };
 
             return mediaRecorder;
@@ -54,48 +59,10 @@
                         document.getElementById("recordButton").disabled = false;
                     };
                 })
-                .catch(err => console.error("Error accessing media devices:", err));
+                .catch(err => {
+                    console.error("Error accessing media devices:", err);
+                });
         });
-
-        // Function to poll the status of the transcription task
-        async function checkTaskStatus(taskId) {
-            try {
-                const response = await fetch(`http://localhost:5000/status/${taskId}`);
-                const data = await response.json();
-                if (data.status === 'SUCCESS') {
-                    getTaskResult(taskId);
-                } else if (data.status === 'FAILURE') {
-                    console.error('Transcription task failed.');
-                } else {
-                    // Poll the status again after some delay
-                    setTimeout(() => checkTaskStatus(taskId), 2000);
-                }
-            } catch (error) {
-                console.error('Error fetching task status:', error);
-            }
-        }
-
-        // Function to retrieve the transcribed text using the task ID
-        async function getTaskResult(taskId) {
-            try {
-                const response = await fetch(`http://localhost:5000/result/${taskId}`);
-                const data = await response.json();
-                if (data.status === 'SUCCESS') {
-                    // Display the transcribed text on the frontend
-                    document.getElementById('transcribedText').innerText = data.result;
-                } else {
-                    console.error('Error fetching task result:', error);
-                }
-            } catch (error) {
-                console.error('Error fetching task result:', error);
-            }
-        }
-
-        // Modify the onmessage handler to start the task status check
-        mainBackendWebSocket.onmessage = function(event) {
-            console.log('Task ID received:', event.data);
-            checkTaskStatus(event.data); // Start polling the task status
-        };
     </script>
 </body>
 </html>
