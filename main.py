@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import websockets
 import asyncio
+import httpx
 
 app = FastAPI()
 
@@ -41,3 +42,21 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception as e:
             print(f"An error occurred: {e}")
             break
+            
+@app.get("/status/{task_id}")
+async def get_task_status(task_id: str):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"http://localhost:5001/status/{task_id}")
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=response.status_code, detail="Failed to fetch task status.")
+
+@app.get("/result/{task_id}")
+async def get_task_result(task_id: str):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"http://localhost:5001/result/{task_id}")
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(status_code=response.status_code, detail="Failed to fetch task result.")
