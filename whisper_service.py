@@ -57,8 +57,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 temp_file_path = temp_file.name
 
             # Enqueue the transcription task
-            job = queue.enqueue('transcribe_audio_task', temp_file_path)
-
+            job = queue.enqueue('whisper_service.transcribe_audio_task', temp_file_path)
             # Send the task ID back through WebSocket
             await websocket.send_text(job.get_id())
 
@@ -88,6 +87,8 @@ def get_task_result(task_id: str):
     job = Job.fetch(task_id, connection=redis_conn)
 
     if job.is_finished:
+        result_text = job.result
+
         return JSONResponse({"task_id": task_id, "status": "SUCCESS", "result": job.result})
     else:
         return JSONResponse({"task_id": task_id, "status": "IN PROGRESS or FAILED"})
