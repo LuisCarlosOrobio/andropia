@@ -22,7 +22,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # Establish a WebSocket connection with the Whisper service
         async with httpx.AsyncClient() as client:
-            async with client.websocket_connect("ws://localhost:5001/ws") as whisper_websocket:
+            async with client.websocket_connect("ws://localhost:5000/whisper") as whisper_websocket:
                 await whisper_websocket.send_bytes(audio_data)
                 transcribed_text = await whisper_websocket.receive_text()
 
