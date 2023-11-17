@@ -10,7 +10,7 @@
     <p id="transcribedText"></p> <!-- Element to display transcribed text -->
 
     <script>
-        const mainBackendWebSocket = new WebSocket('ws://' + window.location.host + '/ws');
+        const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
 
         mainBackendWebSocket.onopen = function(event) {
             console.log('Connected to the WebSocket.');
