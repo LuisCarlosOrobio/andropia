@@ -7,7 +7,6 @@
     <h1>Audio Recorder</h1>
     <button id="recordButton">Record</button>
     <button id="stopButton" disabled>Stop</button>
-    <p id="transcribedText"></p> <!-- Element to display transcribed text -->
 
     <script>
         const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
@@ -25,7 +24,7 @@
             if (message.taskId) {
                 checkTaskStatus(message.taskId); // Start polling the task status
             } else if (message.transcribedText) {
-                document.getElementById('transcribedText').innerText = message.transcribedText;
+                console.log('Transcribed Text:', message.transcribedText); // Log the transcribed text to the console
             }
         };
 
