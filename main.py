@@ -1,10 +1,7 @@
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import websockets
-import asyncio
-import httpx
-from starlette.websockets import WebSocketDisconnect
 import json
 
 app = FastAPI()
@@ -17,7 +14,6 @@ async def get_root():
     with open("static/index.html", "r") as f:
         return HTMLResponse(content=f.read())
 
-# Function to handle transcription using an external WebSocket service
 async def transcribe_audio(audio_data):
     async with websockets.connect("ws://localhost:5000/ws") as ws:
         await ws.send(audio_data)
@@ -44,8 +40,10 @@ async def websocket_endpoint(websocket: WebSocket):
             # Receive audio data from the frontend
             audio_data = await websocket.receive_bytes()
 
-            # Transcribe the audio using the external service
-            transcribed_text = await transcribe_audio(audio_data)
+            # Transcribe the audio using the external Whisper service
+            async with websockets.connect("ws://localhost:5000/ws") as ws:
+                await ws.send(audio_data)
+                transcribed_text = await ws.recv()
 
             # Send the transcribed text back to the frontend
             await websocket.send_text(json.dumps({"text": transcribed_text}))
@@ -56,21 +54,3 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception as e:
             print(f"An error occurred: {e}")
             break
-
-@app.get("/status/{task_id}")
-async def get_task_status(task_id: str):
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"http://localhost:5000/status/{task_id}")
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise HTTPException(status_code=response.status_code, detail="Failed to fetch task status.")
-
-@app.get("/result/{task_id}")
-async def get_task_result(task_id: str):
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"http://localhost:5000/result/{task_id}")
-        if response.status_code == 200:
-            return response.json()
-        else:
-            raise HTTPException(status_code=response.status_code, detail="Failed to fetch task result.")
