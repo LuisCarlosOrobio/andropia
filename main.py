@@ -16,7 +16,7 @@ async def get_root():
 
 # Function to handle transcription using an external WebSocket service
 async def transcribe_audio(audio_data):
-    async with websockets.connect("ws://localhost:5000/whisper") as ws:
+    async with websockets.connect("ws://localhost:5000/ws") as ws:
         await ws.send(audio_data)
         return await ws.recv()
 
