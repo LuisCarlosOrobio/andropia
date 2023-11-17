@@ -1,7 +1,8 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-import httpx
+import websockets
+import asyncio
 
 app = FastAPI()
 
@@ -13,18 +14,30 @@ async def get_root():
     with open("static/index.html", "r") as f:
         return HTMLResponse(content=f.read())
 
+# Function to handle transcription using an external WebSocket service
+async def transcribe_audio(audio_data):
+    async with websockets.connect("ws://localhost:5000/whisper") as ws:
+        await ws.send(audio_data)
+        return await ws.recv()
+
 # WebSocket endpoint for the frontend
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     while True:
-        audio_data = await websocket.receive_bytes()
+        try:
+            # Receive audio data from the frontend
+            audio_data = await websocket.receive_bytes()
+            
+            # Transcribe the audio using the external service
+            transcribed_text = await transcribe_audio(audio_data)
+            
+            # Send the transcribed text back to the frontend
+            await websocket.send_text(transcribed_text)
 
-        # Establish a WebSocket connection with the Whisper service
-        async with httpx.AsyncClient() as client:
-            async with client.websocket_connect("ws://localhost:5000/whisper") as whisper_websocket:
-                await whisper_websocket.send_bytes(audio_data)
-                transcribed_text = await whisper_websocket.receive_text()
-
-                # Send the transcribed text back to frontend
-                await websocket.send_text(transcribed_text)
+        except websockets.exceptions.ConnectionClosed as e:
+            print(f"WebSocket connection closed: {e}")
+            break
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            break
