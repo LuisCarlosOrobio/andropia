@@ -4,7 +4,7 @@
     <title>Simple Audio Recorder with Image Upload</title>
 </head>
 <body>
-    <h1>Audio Recorder</h1>
+    <h1>Audio Recorder and Image Uploader</h1>
     <input type="file" id="imageInput" accept="image/*">
     <button id="recordButton">Record</button>
     <button id="stopButton" disabled>Stop</button>
@@ -13,6 +13,7 @@
     <script>
         let base64Image = '';
         let transcribedText = '';
+        let mediaRecorder = null;
 
         const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
 
@@ -30,8 +31,8 @@
                 console.log('Transcribed Text:', message.text);
                 transcribedText = message.text;
                 document.getElementById('transcribedText').innerText = transcribedText;
-                sendImageAndText();
             }
+            sendImageAndText();
         };
 
         document.getElementById('imageInput').addEventListener('change', function(event) {
@@ -45,7 +46,7 @@
         });
 
         const getMediaRecorder = (stream) => {
-            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder = new MediaRecorder(stream);
             let audioChunks = [];
 
             mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
@@ -60,7 +61,7 @@
         document.getElementById("recordButton").addEventListener("click", () => {
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then(stream => {
-                    const mediaRecorder = getMediaRecorder(stream);
+                    mediaRecorder = getMediaRecorder(stream);
                     mediaRecorder.start();
                     document.getElementById("stopButton").disabled = false;
                     document.getElementById("recordButton").disabled = true;
@@ -71,31 +72,54 @@
         });
 
         document.getElementById("stopButton").addEventListener("click", () => {
-            // Stop recording when stop button is clicked
             mediaRecorder.stop();
             document.getElementById("stopButton").disabled = true;
             document.getElementById("recordButton").disabled = false;
         });
 
         function sendImageAndText() {
+            let url;
+            let data = {};
+
             if (base64Image && transcribedText) {
-                const data = {
-                    image_data: base64Image,
-                    text: transcribedText
+                // Both image and transcribed text available
+                url = "http://127.0.0.1:5000/completion";
+                data = {
+                    prompt: "Describe the image: " + transcribedText,
+                    image_data: [{ "data": base64Image, "id": generateRandomId() }]
                 };
-                fetch('/process-data', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(data)
-                })
-                .then(response => response.json())
-                .then(result => {
-                    console.log('Processed data:', result);
-                })
-                .catch(error => {
-                    console.error('Error sending data:', error);
-                });
+            } else if (base64Image) {
+                // Only image available
+                url = "http://127.0.0.1:5000/completion";
+                data = {
+                    image_data: [{ "data": base64Image, "id": generateRandomId() }]
+                };
+            } else if (transcribedText) {
+                // Only transcribed text available
+                url = "http://127.0.0.1:5002/completion";
+                data = {
+                    prompt: transcribedText
+                };
+            } else {
+                return; // No data to send
             }
+
+            fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                console.log('Processed data:', result);
+            })
+            .catch(error => {
+                console.error('Error sending data:', error);
+            });
+        }
+
+        function generateRandomId() {
+            return Math.floor(Math.random() * 1000000);
         }
     </script>
 </body>
