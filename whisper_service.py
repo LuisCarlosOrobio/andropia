@@ -15,7 +15,7 @@ MODEL_NAME = "openai/whisper-large-v2"
 whisper_pipeline = FlaxWhisperPipline(MODEL_NAME, dtype=jnp.bfloat16, batch_size=16)
 
 # Function to transcribe audio from a file
-def transcribe_audio(audio_data):
+async def transcribe_audio(audio_data):
     try:
         # Transcribe using Whisper pipeline
         result = whisper_pipeline(audio_data)
@@ -32,13 +32,13 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Receive audio file as binary data
             audio_data = await websocket.receive_bytes()
-
+            
             # Transcribe the audio data
-            transcribed_text = transcribe_audio(audio_data)
-
+            transcribed_text = await transcribe_audio(audio_data)
+            
             # Send the transcribed text back through WebSocket
             await websocket.send_text(transcribed_text)
-
+    
     except websockets.exceptions.ConnectionClosed as e:
         if e.code == 1000:
             print("Normal WebSocket disconnection.")
@@ -46,7 +46,3 @@ async def websocket_endpoint(websocket: WebSocket):
             print(f"WebSocket disconnected with error code: {e.code}")
     except Exception as e:
         print(f"An error occurred: {e}")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
