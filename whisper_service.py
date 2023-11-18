@@ -2,9 +2,6 @@ import os
 from fastapi import FastAPI, WebSocket
 import websockets
 import tempfile
-import redis
-from rq import Queue
-from rq.job import Job
 from whisper_jax import FlaxWhisperPipline
 import jax.numpy as jnp
 
@@ -16,10 +13,6 @@ app = FastAPI()
 # Initialize Whisper model
 MODEL_NAME = "openai/whisper-large-v2"
 whisper_pipeline = FlaxWhisperPipline(MODEL_NAME, dtype=jnp.bfloat16, batch_size=16)
-
-# Initialize Redis connection and queue
-redis_conn = redis.Redis()
-queue = Queue(connection=redis_conn)
 
 # Function to transcribe audio from a file
 def transcribe_audio(audio_data):
