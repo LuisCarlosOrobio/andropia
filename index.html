@@ -9,12 +9,16 @@
     <button id="stopButton" disabled>Stop</button>
     <p id="transcribedText">Transcribed Text: </p>
     <p id="processedText">Processed Text: </p>
+    <textarea id="userTextInput" placeholder="Enter your text here..."></textarea>
+    <input type="file" id="imageInput" accept="image/*" />
+    <button id="uploadButton" disabled>Upload Data</button>
 
     <script>
         const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
 
         mainBackendWebSocket.onopen = function(event) {
             console.log('Connected to the WebSocket.');
+            document.getElementById("uploadButton").disabled = false;
         };
 
         mainBackendWebSocket.onerror = function(error) {
@@ -63,6 +67,33 @@
                     console.error("Error accessing media devices:", err);
                 });
         });
-    </script>
-</body>
-</html>
+
+        function uploadData() {
+    const textData = document.getElementById("userTextInput").value;
+    const imageFile = document.getElementById("imageInput").files[0];
+
+    const formData = new FormData();
+    formData.append("text", textData);
+    if (imageFile) {
+        formData.append("image", imageFile);
+    }
+
+    // Send the FormData as an HTTP POST request
+    fetch('/process-text-image', { // Replace with your backend URL
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {                                                                                                                                                                                                                                                                                                                           
+        console.log('Success:', data);                                                                                                                                                                                                                                                                                                        
+    })                                                                                                                                                                                                                                                                                                                                        
+    .catch((error) => {                                                                                                                                                                                                                                                                                                                       
+        console.error('Error:', error);                                                                                                                                                                                                                                                                                                       
+    });                                                                                                                                                                                                                                                                                                                                       
+}                                                                                                                                                                                                                                                                                                                                             
+                                                                                                                                                                                                                                                                                                                                              
+document.getElementById("uploadButton").addEventListener("click", uploadData);                                                                                                                                                                                                                                                                
+                                                                                                                                                                                                                                                                                                                                              
+    </script>                                                                                                                                                                                                                                                                                                                                 
+</body>                                                                                                                                                                                                                                                                                                                                       
+</html>    
