@@ -16,7 +16,7 @@ async def get_root():
         return HTMLResponse(content=f.read())
 
 # Define URLs for external services
-image_processing_service_url = "http://127.0.0.1:5000/completion"
+image_processing_service_url = "http://127.0.0.1:5001/completion"
 text_processing_service_url = "http://127.0.0.1:5002/completion"
 
 @app.post("/process-data")
