@@ -1,9 +1,12 @@
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import websockets
+from httpx import Timeout
 import httpx
 import json
+import base64
+import uuid
 
 app = FastAPI()
 
@@ -26,7 +29,7 @@ async def transcribe_audio(audio_data):
                 if result['status'] == 'SUCCESS':
                     return result['result']
                 else:
-                    return "Transcription in progress or failed"
+                   return "Transcription in progress or failed"
             else:
                 raise HTTPException(status_code=response.status_code, detail="Failed to fetch task result.")
 
@@ -61,6 +64,38 @@ async def send_text_for_processing(text):
             return decoded_response.get('content')
         else:
             return f"Error: Received response code {response.status_code}"
+
+# Endpoint to process text and image
+@app.post("/process-text-image")
+async def process_text_image(text: str = Form(...), image: UploadFile = File(...)):
+    # Convert image to base64 string
+    image_content = await image.read()
+    base64_string = base64.b64encode(image_content).decode()
+
+    # Generate a unique ID for the image
+    image_id = uuid.uuid4().int
+
+    # Assemble data for the request
+    data = {
+        "prompt": text,
+        "image_data": [
+            {"data": base64_string, "id": image_id}
+        ]
+    }
+    json_data = json.dumps(data)
+
+    timeout = Timeout(10.0, connect=60.0)
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post("http://127.0.0.1:5001/completion", headers={'Content-Type': 'application/json'}, content=json_data)
+        if response.status_code == 200:
+            decoded_response = response.json()
+            return decoded_response.get('content')
+        else:
+            return f"Error: Received response code {response.status_code}"
+    except httpx.ReadTimeout:
+        return {"error": "Request timed out"}
 
 # WebSocket endpoint for the frontend
 @app.websocket("/ws")
