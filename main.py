@@ -39,7 +39,25 @@ async def process_data(request: Request):
     elif "text" in data:
         # Only transcribed text available
         url = text_processing_service_url
-        payload = {"prompt": data["text"]}
+        payload = {
+            "prompt": data["text"],
+            "n_predict": 20,
+            "sampling": {
+                "repeat_last_n": 64,
+                "repeat_penalty": 1.1,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "top_k": 40,
+                "tfs_z": 1.0,
+                "top_p": 0.95,
+                "typical_p": 1.0,
+                "temperature": 0.7,
+                "mirostat": 0,
+                "mirostat_lr": 0.1,
+                "mirostat_ent": 5.0,
+                "stream": True
+            }
+        }
     else:
         return JSONResponse(content={"error": "No valid data received"}, status_code=400)
 
@@ -51,7 +69,7 @@ async def process_data(request: Request):
             return JSONResponse(content={"error": "Failed to process data"}, status_code=response.status_code)
 
 def generate_random_id():
-    return random.randint(1, 1000000)                                                                                                                                                                                                         
+    return random.randint(1, 1000000)                                                                                                                                                                                                    
 
 @app.websocket("/ws")                                                                                                                                                                                                                                                                   
 async def websocket_endpoint(websocket: WebSocket):                                                                                                                                                                                                                                     
