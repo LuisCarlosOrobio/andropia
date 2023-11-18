@@ -7,7 +7,8 @@
     <h1>Audio Recorder</h1>
     <button id="recordButton">Record</button>
     <button id="stopButton" disabled>Stop</button>
-    <p id="transcribedText"></p>
+    <p id="transcribedText">Transcribed Text: </p>
+    <p id="processedText">Processed Text: </p>
 
     <script>
         const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
@@ -21,11 +22,15 @@
         };
 
         mainBackendWebSocket.onmessage = function(event) {
-                const message = JSON.parse(event.data);
-                if (message.text) {
-                        console.log('Transcribed Text:', message.text);
-                        document.getElementById('transcribedText').innerText = message.text;
-                }
+            const message = JSON.parse(event.data);
+            if (message.text) {
+                console.log('Transcribed Text:', message.text);
+                document.getElementById('transcribedText').innerText = 'Transcribed Text: ' + message.text;
+            }
+            if (message.processed_text) {
+                console.log('Processed Text:', message.processed_text);
+                document.getElementById('processedText').innerText = 'Processed Text: ' + message.processed_text;
+            }
         };
 
         const getMediaRecorder = (stream) => {
