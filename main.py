@@ -1,7 +1,8 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import websockets
+import httpx
 import json
 
 app = FastAPI()
@@ -18,8 +19,6 @@ async def transcribe_audio(audio_data):
     async with websockets.connect("ws://localhost:5000/ws") as ws:
         await ws.send(audio_data)
         task_id = await ws.recv()
-
-        # Fetch the result of the transcription task
         async with httpx.AsyncClient() as client:
             response = await client.get(f"http://localhost:5000/result/{task_id}")
             if response.status_code == 200:
@@ -30,7 +29,39 @@ async def transcribe_audio(audio_data):
                     return "Transcription in progress or failed"
             else:
                 raise HTTPException(status_code=response.status_code, detail="Failed to fetch task result.")
+        
+text_processing_service_url = "http://127.0.0.1:5002/completion"
 
+async def send_text_for_processing(text):
+    # Prepare the data payload as JSON with all specified parameters
+    data = json.dumps({
+        "prompt": text,
+        "n_predict": -1,
+        "sampling": {
+            "repeat_last_n": 64,
+            "repeat_penalty": 1.1,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "top_k": 40,
+            "tfs_z": 1.0,
+            "top_p": 0.95,
+            "typical_p": 1.0,
+            "temperature": 0.7,
+            "mirostat": 0,
+            "mirostat_lr": 0.1,
+            "mirostat_ent": 5.0,
+            "stream": True
+        }
+    })
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(text_processing_service_url, headers={'Content-Type': 'application/json'}, content=data)
+        if response.status_code == 200:
+            decoded_response = response.json()
+            return decoded_response.get('content')
+        else:
+            return f"Error: Received response code {response.status_code}"
+            
 # WebSocket endpoint for the frontend
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -48,6 +79,9 @@ async def websocket_endpoint(websocket: WebSocket):
             # Send the transcribed text back to the frontend
             await websocket.send_text(json.dumps({"text": transcribed_text}))
 
+            processed_text = send_text_for_processing(transcribed_text)
+            await websocket.send_text(json.dumps({"processed_text": processed_text}))
+            
         except websockets.exceptions.ConnectionClosed as e:
             print(f"WebSocket connection closed: {e}")
             break
