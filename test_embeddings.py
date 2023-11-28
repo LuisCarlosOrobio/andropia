@@ -55,8 +55,6 @@ embedding_result = send_text_for_embedding(prompt_text, embedding_service_url)
 
 print("Attempting to save embedding to ChromaDB...")
 
-print("Attempting to save embedding to ChromaDB...")
-
 try:
     # Extract the embedding list from the result
     embedding_list = embedding_result.get('embedding', [])
