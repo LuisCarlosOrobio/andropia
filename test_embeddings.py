@@ -1,5 +1,8 @@
 import json
 import requests
+import chromadb
+import uuid
+from datetime import datetime
 
 # Function to send text for processing to a specified URL
 def send_text_for_processing(text, url):
@@ -42,10 +45,43 @@ def send_text_for_embedding(text, url):
 text_processing_service_url = "http://127.0.0.1:5002/completion"
 embedding_service_url = "http://127.0.0.1:5002/embedding"
 
+chroma_client = chromadb.Client()
+collection = chroma_client.get_or_create_collection("llm_memory")
 prompt_text = "Are you doing alright?"
 
 processing_result = send_text_for_processing(prompt_text, text_processing_service_url)
-print("Processing Result:", processing_result)
-
+current_timestamp = datetime.now().isoformat()
 embedding_result = send_text_for_embedding(prompt_text, embedding_service_url)
-print("Embedding Result:", embedding_result)
+
+print("Attempting to save embedding to ChromaDB...")
+
+print("Attempting to save embedding to ChromaDB...")
+
+try:
+    # Extract the embedding list from the result
+    embedding_list = embedding_result.get('embedding', [])
+    print("Embedding List:", embedding_list)
+
+    # Ensure embedding_list is a list of numbers
+    if isinstance(embedding_list, list) and all(isinstance(x, (int, float)) for x in embedding_list):
+        # Create a nested list for the embedding to match the expected format of ChromaDB
+        nested_embedding_list = [embedding_list]
+
+        # Define basic metadata
+        metadata = {
+            "prompt": prompt_text,
+            "timestamp": current_timestamp
+        }
+
+        # Add embedding to the collection
+        collection.add(
+            documents=[prompt_text],
+            embeddings=nested_embedding_list,  # Nested list format for embedding
+            metadatas=[metadata],  # Basic metadata including prompt and timestamp
+            ids=[str(uuid.uuid4())]
+        )
+        print("Embedding successfully saved to ChromaDB.")
+    else:
+        print("Invalid format for embedding result.")
+except Exception as e:
+    print(f"An error occurred while saving to ChromaDB: {e}")
