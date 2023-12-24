@@ -97,25 +97,23 @@ async def process_text_image(text: str = Form(...), image: UploadFile = File(...
     except httpx.ReadTimeout:
         return {"error": "Request timed out"}
 
-# WebSocket endpoint for the frontend
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     while True:
         try:
-            # Receive audio data from the frontend
             audio_data = await websocket.receive_bytes()
-
-            # Transcribe the audio using the external Whisper service
-            async with websockets.connect("ws://localhost:5000/ws") as ws:
-                await ws.send(audio_data)
-                transcribed_text = await ws.recv()
-
-            # Send the transcribed text back to the frontend
+            transcribed_text = await transcribe_audio(audio_data)
             await websocket.send_text(json.dumps({"text": transcribed_text}))
 
             processed_text = await send_text_for_processing(transcribed_text)
             await websocket.send_text(json.dumps({"processed_text": processed_text}))
+
+            # Send the processed text to the Tortoise TTS service via WebSocket
+            async with websockets.connect("ws://localhost:5002/ws") as tts_ws:
+                await tts_ws.send(processed_text)
+                audio_filepath = await tts_ws.recv()
+                await websocket.send_text(json.dumps({"audio_file": audio_filepath}))
 
         except websockets.exceptions.ConnectionClosed as e:
             print(f"WebSocket connection closed: {e}")
