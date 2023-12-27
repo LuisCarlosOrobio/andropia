@@ -66,51 +66,59 @@ async def send_text_for_processing(text):
             return f"Error: Received response code {response.status_code}"
 
 # Endpoint to process text and image
-#@app.post("/process-text-image")
-#async def process_text_image(text: str = Form(...), image: UploadFile = File(...)):
+@app.post("/process-text-image")
+async def process_text_image(text: str = Form(...), image: UploadFile = File(...)):
     # Convert image to base64 string
-    #image_content = await image.read()
-    #base64_string = base64.b64encode(image_content).decode()
+    image_content = await image.read()
+    base64_string = base64.b64encode(image_content).decode()
 
     # Generate a unique ID for the image
-    #image_id = uuid.uuid4().int
+    image_id = uuid.uuid4().int
 
     # Assemble data for the request
-    #data = {
-    #    "prompt": text,
-    #    "image_data": [
-    #        {"data": base64_string, "id": image_id}
-    #    ]
-    #}
-    #json_data = json.dumps(data)
+    data = {
+        "prompt": text,
+        "image_data": [
+            {"data": base64_string, "id": image_id}
+        ]
+    }
+    json_data = json.dumps(data)
 
-    #timeout = Timeout(10.0, connect=60.0)
+    timeout = Timeout(10.0, connect=60.0)
 
-    #try:
-    #    async with httpx.AsyncClient(timeout=timeout) as client:
-    #        response = await client.post("http://127.0.0.1:5001/completion", headers={'Content-Type': 'application/json'}, content=json_data)
-    #    if response.status_code == 200:
-    #        decoded_response = response.json()
-    #        return decoded_response.get('content')
-    #    else:
-    #        return f"Error: Received response code {response.status_code}"
-    #except httpx.ReadTimeout:
-    #    return {"error": "Request timed out"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post("http://127.0.0.1:5001/completion", headers={'Content-Type': 'application/json'}, content=json_data)
+        if response.status_code == 200:
+            decoded_response = response.json()
+            return decoded_response.get('content')
+        else:
+            return f"Error: Received response code {response.status_code}"
+    except httpx.ReadTimeout:
+        return {"error": "Request timed out"}
 
+# WebSocket endpoint for the frontend
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     while True:
         try:
+            # Receive audio data from the frontend
             audio_data = await websocket.receive_bytes()
-            transcribed_text = await transcribe_audio(audio_data)
+
+            # Transcribe the audio using the external Whisper service
+            async with websockets.connect("ws://localhost:5000/ws") as ws:
+                await ws.send(audio_data)
+                transcribed_text = await ws.recv()
+
+            # Send the transcribed text back to the frontend
             await websocket.send_text(json.dumps({"text": transcribed_text}))
 
             processed_text = await send_text_for_processing(transcribed_text)
             await websocket.send_text(json.dumps({"processed_text": processed_text}))
-
-            # Send the processed text to the Tortoise TTS service via WebSocket
-            async with websockets.connect("ws://localhost:5002/ws") as tts_ws:
+            
+# Send the processed text to the Tortoise TTS service via WebSocket
+            async with websockets.connect("ws://localhost:5006/ws") as tts_ws:
                 await tts_ws.send(processed_text)
                 audio_filepath = await tts_ws.recv()
                 await websocket.send_text(json.dumps({"audio_file": audio_filepath}))
