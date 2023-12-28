@@ -1,67 +1,123 @@
-import os
-import uuid
-import time
-from fastapi import FastAPI, WebSocket, Form
-from fastapi.responses import FileResponse
-from tortoise.api import TextToSpeech
-from tortoise.utils.audio import load_voice
-import torchaudio
-from apscheduler.schedulers.background import BackgroundScheduler
-from starlette.background import BackgroundTasks
+#!/usr/bin/env python3
+import argparse
+import io
+import logging
+import wave
+from pathlib import Path
+from typing import Any, Dict
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from . import PiperVoice
+from .download import ensure_voice_exists, find_voice, get_voices
+
+_LOGGER = logging.getLogger()
+
+# Command line argument parsing
+parser = argparse.ArgumentParser()
+parser.add_argument("--host", default="0.0.0.0", help="HTTP server host")
+    parser.add_argument("--port", type=int, default=5000, help="HTTP server port")
+    #
+    parser.add_argument("-m", "--model", required=True, help="Path to Onnx model file")
+    parser.add_argument("-c", "--config", help="Path to model config file")
+    #
+    parser.add_argument("-s", "--speaker", type=int, help="Id of speaker (default: 0)")
+    parser.add_argument(
+        "--length-scale", "--length_scale", type=float, help="Phoneme length"
+    )
+    parser.add_argument(
+        "--noise-scale", "--noise_scale", type=float, help="Generator noise"
+    )
+    parser.add_argument(
+        "--noise-w", "--noise_w", type=float, help="Phoneme width noise"
+    )
+    #
+    parser.add_argument("--cuda", action="store_true", help="Use GPU")
+    #
+    parser.add_argument(
+        "--sentence-silence",
+        "--sentence_silence",
+        type=float,
+        default=0.0,
+        help="Seconds of silence after each sentence",
+    )
+    #
+    parser.add_argument(
+        "--data-dir",
+        "--data_dir",
+        action="append",
+        default=[str(Path.cwd())],
+        help="Data directory to check for downloaded models (default: current directory)",
+    )
+    parser.add_argument(
+        "--download-dir",
+        "--download_dir",
+        help="Directory to download voices into (default: first data dir)",
+    )
+    #
+    parser.add_argument(
+        "--update-voices",
+        action="store_true",
+        help="Download latest voices.json during startup",
+    )
+    #
+    parser.add_argument(
+        "--debug", action="store_true", help="Print DEBUG messages to console"
+    )
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    _LOGGER.debug(args)
+
+if not args.download_dir:
+        # Download to first data directory by default
+        args.download_dir = args.data_dir[0]
+
+    # Download voice if file doesn't exist
+    model_path = Path(args.model)
+    if not model_path.exists():
+        # Load voice info
+        voices_info = get_voices(args.download_dir, update_voices=args.update_voices)
+
+        # Resolve aliases for backwards compatibility with old voice names
+        aliases_info: Dict[str, Any] = {}
+        for voice_info in voices_info.values():
+            for voice_alias in voice_info.get("aliases", []):
+                aliases_info[voice_alias] = {"_is_alias": True, **voice_info}
+
+        voices_info.update(aliases_info)
+        ensure_voice_exists(args.model, args.data_dir, args.download_dir, voices_info)
+        args.model, args.config = find_voice(args.model, args.data_dir)
+
+ # Load voice
+    voice = PiperVoice.load(args.model, config_path=args.config, use_cuda=args.cuda)
+    synthesize_args = {
+        "speaker_id": args.speaker,
+        "length_scale": args.length_scale,
+        "noise_scale": args.noise_scale,
+        "noise_w": args.noise_w,
+        "sentence_silence": args.sentence_silence,
+    }
+# Initialize FastAPI app
 app = FastAPI()
 
-# Initialize Tortoise TTS
-tts = TextToSpeech(use_deepspeed=True, kv_cache=True, half=True)
-
-AUDIO_FOLDER = "temporary_audio_files"
-if not os.path.exists(AUDIO_FOLDER):
-    os.mkdir(AUDIO_FOLDER)
-
-# Helper function to convert text to wav file and return filepath
-async def text_to_wav(text, voice='lain', preset='fast'):
-    voice_samples, conditioning_latents = load_voice(voice)
-    gen_audio = tts.tts_with_preset(text, voice_samples=voice_samples, conditioning_latents=conditioning_latents, preset=preset)
-    filename = f"{uuid.uuid4()}.wav"
-    filepath = os.path.join(AUDIO_FOLDER, filename)
-    torchaudio.save(filepath, gen_audio.squeeze(0).cpu(), 24000)
-    return filepath
-
-@app.post("/text_to_speech")
-async def tts_endpoint(text: str = Form(...)):
-    audio_filepath = await text_to_wav(text)
-    return {"audio_file": audio_filepath.split("/")[-1]}
-
-@app.get("/audio/{filename}")
-async def serve_audio(filename: str):
-    return FileResponse(os.path.join(AUDIO_FOLDER, filename))
-
-# Cleanup function that deletes files older than 1 hour
-def cleanup_old_audio_files():
-    now = time.time()
-    for file in os.listdir(AUDIO_FOLDER):
-        file_path = os.path.join(AUDIO_FOLDER, file)
-        if os.path.getctime(file_path) < now - 1 * 3600:
-            try:
-                os.remove(file_path)
-            except:
-                pass
-
-# Schedule the cleanup function to run every hour
-scheduler = BackgroundScheduler()
-scheduler.add_job(func=cleanup_old_audio_files, trigger="interval", seconds=3600)
-scheduler.start()
-
-# WebSocket endpoint (example)
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    while True:
-        data = await websocket.receive_text()
-        audio_filepath = await text_to_wav(data)
-        await websocket.send_text(audio_filepath.split("/")[-1])
+    try:
+        while True:
+            text = await websocket.receive_text()
+            text = text.strip()
+            if not text:
+                raise ValueError("No text provided")
 
-if __name__ == '__main__':
+            _LOGGER.debug("Synthesizing text: %s", text)
+            with io.BytesIO() as wav_io:
+                with wave.open(wav_io, "wb") as wav_file:
+                    voice.synthesize(text, wav_file, **synthesize_args)
+
+                await websocket.send_bytes(wav_io.getvalue())
+    except WebSocketDisconnect:
+        _LOGGER.info("WebSocket disconnected")
+
+if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, port=5002, log_level="debug")
+    uvicorn.run(app, host=args.host, port=args.port)
