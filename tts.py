@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from . import PiperVoice
-from .download import ensure_voice_exists, find_voice, get_voices
+from piper_tts import PiperVoice, ensure_voice_exists, find_voice, get_voices  # Adjusted import statement
 
 _LOGGER = logging.getLogger()
 
