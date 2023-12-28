@@ -32,9 +32,6 @@ args = parser.parse_args()
 logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 _LOGGER.debug(args)
 
-logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
-_LOGGER.debug(args)
-
 if not args.download_dir:
     args.download_dir = args.data_dir[0]
 
