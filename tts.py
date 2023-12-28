@@ -32,6 +32,9 @@ args = parser.parse_args()
 logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 _LOGGER.debug(args)
 
+logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+_LOGGER.debug(args)
+
 if not args.download_dir:
     args.download_dir = args.data_dir[0]
 
@@ -56,61 +59,6 @@ synthesize_args = {
     "sentence_silence": args.sentence_silence,
 }
 
-# Initialize FastAPI app
-app = FastAPI()
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        while True:
-            text = await websocket.receive_text()
-            text = text.strip()
-            if not text:
-                raise ValueError("No text provided")
-
-            _LOGGER.debug("Synthesizing text: %s", text)
-            with io.BytesIO() as wav_io:
-                with wave.open(wav_io, "wb") as wav_file:
-                    voice.synthesize(text, wav_file, **synthesize_args)
-
-                await websocket.send_bytes(wav_io.getvalue())
-    except WebSocketDisconnect:
-        _LOGGER.info("WebSocket disconnected")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host=args.host, port=args.port)
-
-if not args.download_dir:
-        # Download to first data directory by default
-        args.download_dir = args.data_dir[0]
-
-    # Download voice if file doesn't exist
-    model_path = Path(args.model)
-    if not model_path.exists():
-        # Load voice info
-        voices_info = get_voices(args.download_dir, update_voices=args.update_voices)
-
-        # Resolve aliases for backwards compatibility with old voice names
-        aliases_info: Dict[str, Any] = {}
-        for voice_info in voices_info.values():
-            for voice_alias in voice_info.get("aliases", []):
-                aliases_info[voice_alias] = {"_is_alias": True, **voice_info}
-
-        voices_info.update(aliases_info)
-        ensure_voice_exists(args.model, args.data_dir, args.download_dir, voices_info)
-        args.model, args.config = find_voice(args.model, args.data_dir)
-
- # Load voice
-    voice = PiperVoice.load(args.model, config_path=args.config, use_cuda=args.cuda)
-    synthesize_args = {
-        "speaker_id": args.speaker,
-        "length_scale": args.length_scale,
-        "noise_scale": args.noise_scale,
-        "noise_w": args.noise_w,
-        "sentence_silence": args.sentence_silence,
-    }
 # Initialize FastAPI app
 app = FastAPI()
 
