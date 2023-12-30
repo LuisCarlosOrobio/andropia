@@ -82,7 +82,7 @@ scene.add(grass);
 // GLTF Model Loading
 const fbxLoader = new FBXLoader();
 fbxLoader.load(
-  'src/yourModel.fbx', // Replace with the path to your FBX file
+  'src/CartoonGirl.fbx60AAAED5-3FC2-4496-9F30-0800D1DC368A.fbx', // Replace with the path to your FBX file
   function (fbx) {
     const model = fbx;
     scene.add(model);
