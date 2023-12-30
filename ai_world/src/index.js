@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader';
 import Grass from './Grass';
 
 
@@ -80,11 +80,11 @@ const grass = new Grass(30, 100000);
 scene.add(grass);
 
 // GLTF Model Loading
-const loader = new GLTFLoader();
-loader.load(
-  'src/scene.gltf',
-  function ( gltf ) {
-    const model = gltf.scene;
+const fbxLoader = new FBXLoader();
+fbxLoader.load(
+  'src/yourModel.fbx', // Replace with the path to your FBX file
+  function (fbx) {
+    const model = fbx;
     scene.add(model);
 
     // Update the model scale, position, and rotation
@@ -99,15 +99,15 @@ loader.load(
 
     light.target.position.copy(model.position);
     scene.add(light.target);
-    
+
 
     model.traverse((child) => {
-	if (child.isMesh) {
-		child.rotation.y = 60 * (Math.PI / 180);
-		child.material.emissive = new THREE.Color(0x404040);
-		child.material.emissiveIntensity = 0.8;
-	}
-	});
+        if (child.isMesh) {
+                child.rotation.y = 60 * (Math.PI / 180);
+                child.material.emissive = new THREE.Color(0x404040);
+                child.material.emissiveIntensity = 0.8;
+        }
+        });
 
 
     // Update camera to look at the model
@@ -119,17 +119,18 @@ loader.load(
   },
   function ( xhr ) {
     console.log((xhr.loaded / xhr.total) * 100 + '% loaded');
-  },
-  function ( error ) {
-    console.log('An error happened', error);
-  }
-);
-
-// Animation loop
-renderer.setAnimationLoop((time) => {
-  grass.update(time);
-
-  controls.update();
-  renderer.render(scene, camera);
-});
+  },-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+  function ( error ) {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+    console.log('An error happened', error);                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+  }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+// Animation loop                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+renderer.setAnimationLoop((time) => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+  grass.update(time);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+  controls.update();                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+  renderer.render(scene, camera);                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+});                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 
