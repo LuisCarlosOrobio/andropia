@@ -1,83 +1,111 @@
-#!/usr/bin/env python3
-import argparse
-import io
-import logging
-import wave
-from pathlib import Path
-from typing import Any, Dict
+from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+import uuid
+import json
+import asyncio
+import time
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from piper_tts import PiperVoice, ensure_voice_exists, find_voice, get_voices  # Adjusted import statement
-
-_LOGGER = logging.getLogger()
-
-# Command line argument parsing
-parser = argparse.ArgumentParser()
-parser.add_argument("--host", default="0.0.0.0", help="HTTP server host")
-parser.add_argument("--port", type=int, default=5000, help="HTTP server port")
-parser.add_argument("-m", "--model", required=True, help="Path to Onnx model file")
-parser.add_argument("-c", "--config", help="Path to model config file")
-parser.add_argument("-s", "--speaker", type=int, help="Id of speaker (default: 0)")
-parser.add_argument("--length-scale", "--length_scale", type=float, help="Phoneme length")
-parser.add_argument("--noise-scale", "--noise_scale", type=float, help="Generator noise")
-parser.add_argument("--noise-w", "--noise_w", type=float, help="Phoneme width noise")
-parser.add_argument("--cuda", action="store_true", help="Use GPU")
-parser.add_argument("--sentence-silence", "--sentence_silence", type=float, default=0.0, help="Seconds of silence after each sentence")
-parser.add_argument("--data-dir", "--data_dir", action="append", default=[str(Path.cwd())], help="Data directory to check for downloaded models (default: current directory)")
-parser.add_argument("--download-dir", "--download_dir", help="Directory to download voices into (default: first data dir)")
-parser.add_argument("--update-voices", action="store_true", help="Download latest voices.json during startup")
-parser.add_argument("--debug", action="store_true", help="Print DEBUG messages to console")
-args = parser.parse_args()
-
-logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
-_LOGGER.debug(args)
-
-if not args.download_dir:
-    args.download_dir = args.data_dir[0]
-
-model_path = Path(args.model)
-if not model_path.exists():
-    voices_info = get_voices(args.download_dir, update_voices=args.update_voices)
-    aliases_info: Dict[str, Any] = {}
-    for voice_info in voices_info.values():
-        for voice_alias in voice_info.get("aliases", []):
-            aliases_info[voice_alias] = {"_is_alias": True, **voice_info}
-
-    voices_info.update(aliases_info)
-    ensure_voice_exists(args.model, args.data_dir, args.download_dir, voices_info)
-    args.model, args.config = find_voice(args.model, args.data_dir)
-
-voice = PiperVoice.load(args.model, config_path=args.config, use_cuda=args.cuda)
-synthesize_args = {
-    "speaker_id": args.speaker,
-    "length_scale": args.length_scale,
-    "noise_scale": args.noise_scale,
-    "noise_w": args.noise_w,
-    "sentence_silence": args.sentence_silence,
-}
-
-# Initialize FastAPI app
 app = FastAPI()
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+AUDIO_FOLDER = "temporary_audio_files"
+if not os.path.exists(AUDIO_FOLDER):
+    os.makedirs(AUDIO_FOLDER)
+
+active_websockets = {}
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: int):
     await websocket.accept()
+    active_websockets[client_id] = websocket
     try:
         while True:
-            text = await websocket.receive_text()
-            text = text.strip()
-            if not text:
-                raise ValueError("No text provided")
+            data = await websocket.receive_json()
+            audio_file = await process_json_and_generate_audio(data)
+            await send_audio_file(active_websockets[client_id], audio_file)
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        del active_websockets[client_id]
 
-            _LOGGER.debug("Synthesizing text: %s", text)
-            with io.BytesIO() as wav_io:
-                with wave.open(wav_io, "wb") as wav_file:
-                    voice.synthesize(text, wav_file, **synthesize_args)
+async def process_json_and_generate_audio(data):
+    # Extract the text content from the received JSON data
+    text_to_speak = data.get("text", "")
 
-                await websocket.send_bytes(wav_io.getvalue())
-    except WebSocketDisconnect:
-        _LOGGER.info("WebSocket disconnected")
+    # Prepare the JSON input for piper, containing only the text to be synthesized
+    piper_input = json.dumps({"text": text_to_speak})
+
+    # Specify the model and output file as before
+    model = "/root/piper-voices/en/en_US/lessac/medium/en_US-lessac-medium.onnx"  # or dynamically determined
+    output_file = os.path.join(AUDIO_FOLDER, f"{uuid.uuid4()}.wav")
+
+    # Prepare the piper command
+    piper_command = [
+        "piper",
+        "--model", model,
+        "--output_file", output_file,
+        "--json-input"  # Since we are providing JSON input
+    ]
+
+    # Create an asynchronous subprocess to execute the piper command
+    process = await asyncio.create_subprocess_exec(
+        *piper_command,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE
+    )
+
+    # Write the modified JSON input to piper's stdin
+    process.stdin.write(piper_input.encode())
+    await process.stdin.drain()
+    process.stdin.close()
+    await process.wait()
+
+    if not os.path.exists(output_file):
+        print(f"File not found: {output_file}")
+    else:
+        print(f"File successfully created: {output_file}")
+
+    return output_file
+
+async def send_audio_file(websocket: WebSocket, file_path):
+    with open(file_path, 'rb') as f:
+        audio_data = f.read()
+    await websocket.send_bytes(audio_data)
+
+@app.get("/audio/{filename}")
+async def serve_audio(filename: str):
+    file_path = os.path.join(AUDIO_FOLDER, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
+
+@app.get("/")
+async def read_root():
+    return FileResponse('static/index.html')
+
+async def cleanup_old_audio_files():
+    now = time.time()
+    for file in os.listdir(AUDIO_FOLDER):
+        file_path = os.path.join(AUDIO_FOLDER, file)
+        if os.stat(file_path).st_mtime < now - 3600:  # 1 hour
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(f"Failed to delete {file_path}: {e}")
+@app.on_event("startup")
+async def on_startup():
+    asyncio.create_task(run_periodic_cleanup())
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    pass  # No specific shutdown logic required
+
+async def run_periodic_cleanup():
+    while True:
+        await asyncio.sleep(3600)  # Wait for 1 hour
+        await cleanup_old_audio_files()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
