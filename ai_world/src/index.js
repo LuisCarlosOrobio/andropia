@@ -79,18 +79,20 @@ scene.add(directionalLight);
 const grass = new Grass(30, 100000);
 scene.add(grass);
 
-// GLTF Model Loading
+// FBX Model Loading
 const fbxLoader = new FBXLoader();
-fbxLoader.load(
-  'src/CartoonGirl.fbx60AAAED5-3FC2-4496-9F30-0800D1DC368A.fbx', // Replace with the path to your FBX file
-  function (fbx) {
-    const model = fbx;
-    scene.add(model);
+fbxLoader.load('src/CartoonGirl.fbx60AAAED5-3FC2-4496-9F30-0800D1DC368A.fbx', function (model) {
+    model.traverse(function (child) {
+        if (child.isMesh) {
+            console.log(child.name, child.morphTargetDictionary);
+        }
+    });
 
     // Update the model scale, position, and rotation
     model.scale.set(8, 8, 8);
     model.position.set(2, 2, 2);
     model.rotation.set(0, 0, 0);
+    scene.add(model); // Don't forget to add the model to the scene
 
     const normal = new THREE.Vector3(0, 1, 0);
     const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -100,15 +102,13 @@ fbxLoader.load(
     light.target.position.copy(model.position);
     scene.add(light.target);
 
-
     model.traverse((child) => {
         if (child.isMesh) {
-                child.rotation.y = 60 * (Math.PI / 180);
-                child.material.emissive = new THREE.Color(0x404040);
-                child.material.emissiveIntensity = 0.8;
+            child.rotation.y = 60 * (Math.PI / 180);
+            child.material.emissive = new THREE.Color(0x404040);
+            child.material.emissiveIntensity = 0.8;
         }
-        });
-
+    });
 
     // Update camera to look at the model
     camera.lookAt(model.position);
@@ -116,21 +116,20 @@ fbxLoader.load(
 
     // Update the camera's projection matrix
     camera.updateProjectionMatrix();
-  },
-  function ( xhr ) {
+},
+function (xhr) {
     console.log((xhr.loaded / xhr.total) * 100 + '% loaded');
-  },-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
-  function ( error ) {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
-    console.log('An error happened', error);                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
-  }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
-);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
-// Animation loop                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
-renderer.setAnimationLoop((time) => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
-  grass.update(time);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
-  controls.update();                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
-  renderer.render(scene, camera);                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
-});                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+},
+function (error) {
+    console.log('An error happened', error);
+});
+
+// Animation loop
+renderer.setAnimationLoop((time) => {
+    grass.update(time);
+    controls.update();
+    renderer.render(scene, camera);
+});
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
 
