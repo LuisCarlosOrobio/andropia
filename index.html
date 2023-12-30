@@ -4,22 +4,17 @@
     <title>Simple Audio Recorder</title>
 </head>
 <body>
-    <h1>Audio Recorder</h1>
     <button id="recordButton">Record</button>
     <button id="stopButton" disabled>Stop</button>
-    <p id="transcribedText">Transcribed Text: </p>
-    <p id="processedText">Processed Text: </p>
-    <textarea id="userTextInput" placeholder="Enter your text here..."></textarea>
-    <input type="file" id="imageInput" accept="image/*" />
-    <button id="uploadButton" disabled>Upload Data</button>
-    <audio id="audioPlayer" controls style="display:none;"></audio>
 
     <script>
         const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
+        let mediaRecorder;
+        let audioChunks = [];
 
         mainBackendWebSocket.onopen = function(event) {
             console.log('Connected to the WebSocket.');
-            document.getElementById("uploadButton").disabled = false;
+            document.getElementById("recordButton").disabled = false;
         };
 
         mainBackendWebSocket.onerror = function(error) {
@@ -27,79 +22,40 @@
         };
 
         mainBackendWebSocket.onmessage = function(event) {
-            const message = JSON.parse(event.data);
-            if (message.text) {
-                console.log('Transcribed Text:', message.text);
-                document.getElementById('transcribedText').innerText = 'Transcribed Text: ' + message.text;
+            if (event.data instanceof Blob) {
+                // Directly play the audio received as binary data
+                const audioUrl = URL.createObjectURL(event.data);
+                new Audio(audioUrl).play();
+            } else {
+                // Log messages to console
+                console.log('Message from server:', event.data);
             }
-            if (message.processed_text) {
-                console.log('Processed Text:', message.processed_text);
-                document.getElementById('processedText').innerText = 'Processed Text: ' + message.processed_text;
-            }
-            if (message.audio_file) {
-                console.log('Audio File:', message.audio_file);
-                const audioPlayer = document.getElementById('audioPlayer');
-                audioPlayer.src = message.audio_file;
-                audioPlayer.style.display = 'block';
-                audioPlayer.play();
-            }
-        };
-
-        const getMediaRecorder = (stream) => {
-            const mediaRecorder = new MediaRecorder(stream);
-            let audioChunks = [];
-
-            mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                mainBackendWebSocket.send(audioBlob);
-            };
-
-            return mediaRecorder;
         };
 
         document.getElementById("recordButton").addEventListener("click", () => {
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then(stream => {
-                    const mediaRecorder = getMediaRecorder(stream);
+                    mediaRecorder = new MediaRecorder(stream);
                     mediaRecorder.start();
+                    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
                     document.getElementById("stopButton").disabled = false;
                     document.getElementById("recordButton").disabled = true;
-                    document.getElementById("stopButton").onclick = () => {
-                        mediaRecorder.stop();
-                        document.getElementById("stopButton").disabled = true;
-                        document.getElementById("recordButton").disabled = false;
-                    };
                 })
                 .catch(err => {
                     console.error("Error accessing media devices:", err);
                 });
         });
 
-        function uploadData() {
-            const textData = document.getElementById("userTextInput").value;
-            const imageFile = document.getElementById("imageInput").files[0];
-
-            const formData = new FormData();
-            formData.append("text", textData);
-            if (imageFile) {
-                formData.append("image", imageFile);
-            }
-
-            fetch('/process-text-image', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('Success:', data);
-            })
-            .catch((error) => {
-                console.error('Error:', error);
-            });
-        }
-
-        document.getElementById("uploadButton").addEventListener("click", uploadData);
+        document.getElementById("stopButton").addEventListener("click", () => {
+            mediaRecorder.stop();
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                mainBackendWebSocket.send(audioBlob);
+                audioChunks = []; // Reset the chunks for the next recording
+                document.getElementById("stopButton").disabled = true;
+                document.getElementById("recordButton").disabled = false;
+            };
+        });
     </script>
 </body>
 </html>
