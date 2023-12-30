@@ -1,0 +1,29 @@
+{
+  "name": "webgl-grass",
+  "version": "1.0.0",
+  "description": null,
+  "main": "index.html",
+  "scripts": {
+    "start": "parcel index.html --open",
+    "build": "parcel build index.html"
+  },
+  "dependencies": {
+    "babel": "^6.23.0",
+    "babel-cli": "^6.26.0",
+    "parcel-bundler": "^1.6.1",
+    "three": "0.138.1"
+  },
+  "devDependencies": {
+    "@babel/core": "7.2.0",
+    "typescript": "4.4.4"
+  },
+  "resolutions": {
+    "@babel/preset-env": "7.13.8"
+  },
+  "keywords": [
+    "grass",
+    "threejs",
+    "shaders",
+    "webgl"
+  ]
+}
