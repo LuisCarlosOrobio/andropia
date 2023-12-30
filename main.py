@@ -117,10 +117,14 @@ async def websocket_endpoint(websocket: WebSocket):
             processed_text = await send_text_for_processing(transcribed_text)
             await websocket.send_text(json.dumps({"processed_text": processed_text}))
             
-# Send the processed text to the Tortoise TTS service via WebSocket
-            async with websockets.connect("ws://localhost:5006/ws") as tts_ws:
-                await tts_ws.send(processed_text)
-                audio_filepath = await tts_ws.recv()
+ # Send the processed text to the Piper FastAPI service via WebSocket
+            async with websockets.connect("ws://localhost:8000/ws/1") as piper_ws:  # Adjust the URL/port as needed
+                # Prepare and send JSON data to Piper service
+                json_data = json.dumps({"text": processed_text})
+                await piper_ws.send(json_data)
+
+                # Receive the audio file path from Piper service
+                audio_filepath = await piper_ws.recv()
                 await websocket.send_text(json.dumps({"audio_file": audio_filepath}))
 
         except websockets.exceptions.ConnectionClosed as e:
