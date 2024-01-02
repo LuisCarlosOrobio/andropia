@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import Grass from './Grass';
 
-
 const mainBackendWebSocket = new WebSocket('wss://' + window.location.host + '/ws');
+
+let mixer, action;
+let audio;
+let morphTargetMesh;
 let mediaRecorder;
 let audioChunks = [];
 
@@ -15,13 +18,18 @@ mainBackendWebSocket.onopen = function(event) {
 mainBackendWebSocket.onmessage = function(event) {
     if (event.data instanceof Blob) {
         const audioUrl = URL.createObjectURL(event.data);
-        new Audio(audioUrl).play();
+        audio = new Audio(audioUrl);
+        audio.onplay = () => { if (action) action.paused = false; };
+        audio.onended = () => { if (action) action.paused = true; };
+        audio.play();
     } else {
         console.log('Message from server:', event.data);
     }
 };
 
 // Add event listeners for recording and stopping audio
+let mediaRecorder;
+let audioChunks = [];
 document.addEventListener('keydown', (event) => {
     if (event.key === 'r') { // Press 'r' to start recording
         navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
@@ -79,57 +87,55 @@ scene.add(directionalLight);
 const grass = new Grass(30, 100000);
 scene.add(grass);
 
-// FBX Model Loading
-const fbxLoader = new FBXLoader();
-fbxLoader.load('src/CartoonGirl.fbx60AAAED5-3FC2-4496-9F30-0800D1DC368A.fbx', function (model) {
-    model.traverse(function (child) {
-        if (child.isMesh) {
-            console.log(child.name, child.morphTargetDictionary);
-        }
-    });
+// GLTF Model Loading
+const gltfLoader = new GLTFLoader();
+gltfLoader.load(
+  'dist/src/textures/suit girl update NEW.gltf', // Replace with the path to your glTF file
+  function (gltf) {
+    const model = gltf.scene;
+    model.scale.set(0.02, 0.02, 0.02); // Set the scale of the model
+    model.position.set(0.5, 0.5, 0.5); // Set the position of the model
+    scene.add(model); // Add the model to the scene
 
-    // Update the model scale, position, and rotation
-    model.scale.set(8, 8, 8);
-    model.position.set(2, 2, 2);
-    model.rotation.set(0, 0, 0);
-    scene.add(model); // Don't forget to add the model to the scene
-
-    const normal = new THREE.Vector3(0, 1, 0);
+    mixer = new THREE.AnimationMixer(model)
+    action = mixer.clipAction(gltf.animations[0]);
+    action.play();
+    action.paused = true;
+    
+    // Set up the lighting to illuminate the model
     const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(normal.x, normal.y, normal.z);
-    scene.add(light);
-
-    light.target.position.copy(model.position);
-    scene.add(light.target);
-
-    model.traverse((child) => {
-        if (child.isMesh) {
-            child.rotation.y = 60 * (Math.PI / 180);
-            child.material.emissive = new THREE.Color(0x404040);
-            child.material.emissiveIntensity = 0.8;
-        }
-    });
+    light.position.set(0, 1, 0); // Position the light
+    scene.add(light); // Add the light to the scene
 
     // Update camera to look at the model
     camera.lookAt(model.position);
-    controls.target.set(model.position.x, model.position.y, model.position.z);
+    controls.target.copy(model.position);
+    camera.updateProjectionMatrix(); // Update the camera's projection matrix
 
-    // Update the camera's projection matrix
-    camera.updateProjectionMatrix();
-},
-function (xhr) {
-    console.log((xhr.loaded / xhr.total) * 100 + '% loaded');
-},
-function (error) {
-    console.log('An error happened', error);
-});
+    // Discover and log all morph targets that match the pattern
+model.traverse((object) => {
+      if (object.isMesh && object.morphTargetInfluences) {
+        console.log('Morph Target Mesh found:', object);
+
+        // Log all morph target names
+        if (object.morphTargetDictionary) {
+          console.log('Morph Target Names:', Object.keys(object.morphTargetDictionary));
+        }
+      }
+    });
+  },
+  function (xhr) {
+    console.log(`${(xhr.loaded / xhr.total * 100).toFixed(2)}% loaded`); // Log the loading progress
+  },
+  function (error) {
+    console.error('An error happened', error); // Log any errors that occur
+  }
+);
 
 // Animation loop
 renderer.setAnimationLoop((time) => {
+    if (mixer) mixer.update(time * 0.001); // Update the animation mixer
     grass.update(time);
     controls.update();
     renderer.render(scene, camera);
 });
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
-
