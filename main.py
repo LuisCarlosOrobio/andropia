@@ -12,15 +12,15 @@ import uuid
 
 app = FastAPI()
 
-# Get the absolute path to the 'static/dist' directory
-dist_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), "static/dist"))
+dist_directory = "/root/maip3/static/dist"
 
 # Serve the 'dist' directory
 app.mount("/dist", StaticFiles(directory=dist_directory), name="dist")
 
-@app.get("/")
-async def read_root():
-    return FileResponse('static/dist/index.html')
+@app.get("/", response_class=HTMLResponse)
+async def get_root():
+    # Serve 'index.html' from the 'dist' directory
+    return FileResponse(os.path.join(dist_directory, "index.html"))
 
 @app.get("/dist/{file_path:path}")
 async def serve_static_file(file_path: str):
