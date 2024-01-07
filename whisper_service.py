@@ -6,7 +6,7 @@ from whisper_jax import FlaxWhisperPipline
 import jax.numpy as jnp
 
 # Set CUDA_VISIBLE_DEVICES environment variable
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 app = FastAPI()
 
