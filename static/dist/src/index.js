@@ -27,9 +27,6 @@ mainBackendWebSocket.onmessage = function(event) {
     }
 };
 
-// Add event listeners for recording and stopping audio
-let mediaRecorder;
-let audioChunks = [];
 document.addEventListener('keydown', (event) => {
     if (event.key === 'r') { // Press 'r' to start recording
         navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
