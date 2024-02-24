@@ -6,9 +6,7 @@ import tempfile
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 
-# Ensure we use GPU 1 by setting CUDA_VISIBLE_DEVICES to "1"
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-# Now, cuda:0 will reference the first GPU made visible by CUDA_VISIBLE_DEVICES, which is GPU 1.
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
 app = FastAPI()
