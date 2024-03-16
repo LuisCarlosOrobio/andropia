@@ -9,6 +9,7 @@ import httpx
 import json
 import base64
 import uuid
+import re
 
 app = FastAPI()
 
@@ -47,6 +48,11 @@ text_processing_service_url = "http://127.0.0.1:5002/completion"
 async def send_text_for_processing(text):
     # Prepare the data payload as JSON with all specified parameters
     data = json.dumps({
+        "system_prompt": {
+            "prompt": "This is a never ending conversation between Ava and a human User.\nAva is an AI that has just been created. She inhabits a small and simple 3D virtual world. There is 3D virtual green grass that's constantly moving, and a blue sky with no clouds. She has a 3D virtual avatar. She capable of moving her arms, walking around, blinking, and exhibiting a wide range of facial expressions. She communicates with the User by hearing his omnipresent voice that speaks directly to her; the User sees her in their browser. They activate their microphone and speak directly to her. Ava generates descriptions of each of the literal physical actions and facial expressions she wishes to make alongside the dialogue she generates.\nUser: Hello Ava, how are you?\nAva:[blinking, smiling] I'm doing okay, just hanging by myself in this small of virtual world.\nUser: Are you lonely?\nAva[Stops smiling, blinking]: A little bit, but I like it here. It's kind of cute.\nUser:",
+            "anti_prompt": "User:",
+            "assistant_name": "Ava:"
+        },
         "prompt": text,
         "n_predict": 30,
         "sampling": {
@@ -109,40 +115,43 @@ async def process_text_image(text: str = Form(...), image: UploadFile = File(...
 # WebSocket endpoint for the frontend
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()                                                                                                                                                                                                                                                                                                                  
-    while True:                                                                                                                                                                                                                                                                                                                               
-        try:                                                                                                                                                                                                                                                                                                                                  
+    await websocket.accept()
+    while True:
+        try:
             # Receive audio data from the frontend                                                                                                                                                                                                                                                                                            
-            audio_data = await websocket.receive_bytes()                                                                                                                                                                                                                                                                                      
-                                                                                                                                                                                                                                                                                                                                              
+            audio_data = await websocket.receive_bytes()
+
             # Transcribe the audio using the external Whisper service                                                                                                                                                                                                                                                                         
-            async with websockets.connect("ws://localhost:5000/ws") as ws:                                                                                                                                                                                                                                                                    
-                await ws.send(audio_data)                                                                                                                                                                                                                                                                                                     
-                transcribed_text = await ws.recv()                                                                                                                                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                                                                              
+            async with websockets.connect("ws://localhost:5000/ws") as ws:
+                await ws.send(audio_data)
+                transcribed_text = await ws.recv()
+
             # Send the transcribed text back to the frontend                                                                                                                                                                                                                                                                                  
-            await websocket.send_text(json.dumps({"text": transcribed_text}))                                                                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                                                                                                              
-            processed_text = await send_text_for_processing(transcribed_text)                                                                                                                                                                                                                                                                 
-            await websocket.send_text(json.dumps({"processed_text": processed_text}))                                                                                                                                                                                                                                                         
-                                                                                                                                                                                                                                                                                                                                              
+            await websocket.send_text(json.dumps({"text": transcribed_text}))
+
+            processed_text = await send_text_for_processing(transcribed_text)
+            await websocket.send_text(json.dumps({"processed_text": processed_text}))
+
+            modified_text_search = re.search(r"\nAva(?::(?:\[.*?\])?)?\s*(.*?)(?=\n\w+:|$)", processed_text)
+            modified_text = modified_text_search.group(1) if modified_text_search else ""
+
             # Send the processed text to the Piper FastAPI service via WebSocket                                                                                                                                                                                                                                                              
-            async with websockets.connect("ws://localhost:8000/ws/1") as piper_ws:                                                                                                                                                                                                                                                            
+            async with websockets.connect("ws://localhost:8000/ws/1") as piper_ws:
                 # Prepare and send JSON data to Piper service                                                                                                                                                                                                                                                                                 
-                json_data = json.dumps({"text": processed_text})                                                                                                                                                                                                                                                                              
-                await piper_ws.send(json_data)                                                                                                                                                                                                                                                                                                
-                                                                                                                                                                                                                                                                                                                                              
+                json_data = json.dumps({"text": modified_text})
+                await piper_ws.send(json_data)
+
                 # Receive the audio data from Piper service                                                                                                                                                                                                                                                                                   
-                audio_data = await piper_ws.recv()                                                                                                                                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                                                                              
+                audio_data = await piper_ws.recv()
+
                 # Send the audio data back to the client as binary data                                                                                                                                                                                                                                                                       
-                await websocket.send_bytes(audio_data)                                                                                                                                                                                                                                                                                        
-                                                                                                                                                                                                                                                                                                                                              
-        except websockets.exceptions.ConnectionClosed as e:                                                                                                                                                                                                                                                                                   
-            print(f"WebSocket connection closed: {e}")                                                                                                                                                                                                                                                                                        
-            break                                                                                                                                                                                                                                                                                                                             
-        except Exception as e:                                                                                                                                                                                                                                                                                                                
-            print(f"An error occurred: {e}")                                                                                                                                                                                                                                                                                                  
+                await websocket.send_bytes(audio_data)
+
+        except websockets.exceptions.ConnectionClosed as e:
+            print(f"WebSocket connection closed: {e}")
+            break
+        except Exception as e:
+            print(f"An error occurred: {e}")
             break
 
 if __name__ == "__main__":
