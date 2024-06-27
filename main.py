@@ -1,4 +1,5 @@
 import os
+import subprocess
 from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,10 +11,12 @@ import json
 import base64
 import uuid
 import re
+import shutil
 
 app = FastAPI()
 
 dist_directory = "/root/maip3/static/dist"
+textures_directory = "/root/maip3/static/dist/src/textures"
 
 # Serve the 'dist' directory
 app.mount("/dist", StaticFiles(directory=dist_directory), name="dist")
@@ -27,6 +30,39 @@ async def get_root():
 async def serve_static_file(file_path: str):
     print("Serving file:", file_path)
     return FileResponse(dist_directory + "/" + file_path)
+
+def start_server(brain_model):
+    if brain_model == "Mistral7B":
+        # Execute the bash script to start the server
+        subprocess.Popen(["/root/maip3/start_server.sh"])
+
+@app.post("/upload-gltf/")
+async def upload_gltf(files: list[UploadFile] = File(...)):
+    uploaded_files = []
+    os.makedirs(textures_directory, exist_ok=True)
+    for file in files:
+        file_path = os.path.join(textures_directory, file.filename)
+        try:
+            with open(file_path, "wb") as file_object:
+                shutil.copyfileobj(file.file, file_object)
+            uploaded_files.append(file.filename)
+            print(f"Uploaded {file.filename} to {file_path}")
+        except Exception as e:
+            print(f"Failed to save {file.filename}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save {file.filename}: {str(e)}")
+    return {"files": uploaded_files}  # Return the list of uploaded file names
+
+
+@app.get("/list-gltf-files")
+async def list_gltf_files():
+    gltf_files = [f for f in os.listdir(textures_directory) if f.endswith('.gltf')]
+    return {"files": gltf_files}
+
+@app.post("/start-server/{brain_model}")
+async def start_server_endpoint(brain_model: str):
+    # Call the function to start the server
+    start_server(brain_model)
+    return {"message": f"Server for {brain_model} starting asynchronously"}
 
 async def transcribe_audio(audio_data):
     async with websockets.connect("ws://localhost:5000/ws") as ws:
@@ -45,17 +81,17 @@ async def transcribe_audio(audio_data):
 
 text_processing_service_url = "http://127.0.0.1:5002/completion"
 
-async def send_text_for_processing(text):
-    # Prepare the data payload as JSON with all specified parameters
+async def send_text_for_processing(prompt, anti_prompt, assistant_name, text):
+    # Prepare the data payload as JSON with dynamically received parameters
     data = json.dumps({
         "system_prompt": {
-            "prompt": "This is a never ending conversation between Ava and a human User.\nAva is an AI that has just been created. She inhabits a small and simple 3D virtual world. There is 3D virtual green grass that's constantly moving, and a blue sky with no clouds. She has a 3D virtual avatar. She capable of moving her arms, walking around, blinking, and exhibiting a wide range of facial expressions. She communicates with the User by hearing his omnipresent voice that speaks directly to her; the User sees her in their browser. They activate their microphone and speak directly to her. Ava generates descriptions of each of the literal physical actions and facial expressions she wishes to make alongside the dialogue she generates.\nUser: Hello Ava, how are you?\nAva:[blinking, smiling] I'm doing okay, just hanging by myself in this small of virtual world.\nUser: Are you lonely?\nAva[Stops smiling, blinking]: A little bit, but I like it here. It's kind of cute.\nUser:",
-            "anti_prompt": "User:",
-            "assistant_name": "Ava:"
+            "prompt": prompt,  # This now takes the whole prompt string from the frontend
+            "anti_prompt": anti_prompt,  # Specific words or phrases to avoid in responses
+            "assistant_name": assistant_name  # Name of the AI assistant
         },
-        "prompt": text,
-        "n_predict": 30,
-        "sampling": {
+        "prompt": text,  # The text for which a response is being generated
+        "n_predict": 30,  # Number of predictions to make (can be made dynamic as well)
+         "sampling": {
             "repeat_last_n": 64,
             "repeat_penalty": 1.1,
             "presence_penalty": 0.0,
@@ -81,79 +117,120 @@ async def send_text_for_processing(text):
             return f"Error: Received response code {response.status_code}"
 
 # Endpoint to process text and image
-@app.post("/process-text-image")
-async def process_text_image(text: str = Form(...), image: UploadFile = File(...)):
+#@app.post("/process-text-image")
+#async def process_text_image(text: str = Form(...), image: UploadFile = File(...)):
     # Convert image to base64 string
-    image_content = await image.read()
-    base64_string = base64.b64encode(image_content).decode()
+    #image_content = await image.read()
+    #base64_string = base64.b64encode(image_content).decode()
 
     # Generate a unique ID for the image
-    image_id = uuid.uuid4().int
+    #image_id = uuid.uuid4().int
 
     # Assemble data for the request
-    data = {
-        "prompt": text,
-        "image_data": [
-            {"data": base64_string, "id": image_id}
-        ]
-    }
-    json_data = json.dumps(data)
+    #data = {
+    #    "prompt": text,
+    #    "image_data": [
+    #        {"data": base64_string, "id": image_id}
+    #    ]
+    #}
+    #json_data = json.dumps(data)
 
-    timeout = Timeout(10.0, connect=60.0)
+    #timeout = Timeout(10.0, connect=60.0)
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post("http://127.0.0.1:5001/completion", headers={'Content-Type': 'application/json'}, content=json_data)
-        if response.status_code == 200:
-            decoded_response = response.json()
-            return decoded_response.get('content')
-        else:
-            return f"Error: Received response code {response.status_code}"
-    except httpx.ReadTimeout:
-        return {"error": "Request timed out"}
-
-# WebSocket endpoint for the frontend
+    #try:
+    #    async with httpx.AsyncClient(timeout=timeout) as client:
+    #        response = await client.post("http://127.0.0.1:5001/completion", headers={'Content-Type': 'application/json'}, content=json_data)
+    #    if response.status_code == 200:
+    #        decoded_response = response.json()
+    #        return decoded_response.get('content')
+    #    else:
+    #        return f"Error: Received response code {response.status_code}"
+    #except httpx.ReadTimeout:
+    #    return {"error": "Request timed out"}
+    
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    while True:
-        try:
-            # Receive audio data from the frontend                                                                                                                                                                                                                                                                                            
-            audio_data = await websocket.receive_bytes()
+    setup_complete = False
+    brain_model = None
+    prompt = None
+    anti_prompt = None
+    assistant_name = None
+    voice_model = None
 
-            # Transcribe the audio using the external Whisper service                                                                                                                                                                                                                                                                         
-            async with websockets.connect("ws://localhost:5000/ws") as ws:
-                await ws.send(audio_data)
-                transcribed_text = await ws.recv()
+    try:
+        while True:
+            if not setup_complete:
+                # First step: Handle initial setup including brain model selection
+                message = await websocket.receive_text()
+                try:
+                    command_json = json.loads(message)
+                    if command_json.get('command') == 'start' and all(k in command_json for k in ['brain', 'system_prompt', 'anti_prompt', 'assistant_name']):
+                        brain_model = command_json['brain']
+                        prompt = command_json['system_prompt']
+                        anti_prompt = command_json['anti_prompt']
+                        assistant_name = command_json['assistant_name']
+                        voice_model = command_json['voice']
 
-            # Send the transcribed text back to the frontend                                                                                                                                                                                                                                                                                  
-            await websocket.send_text(json.dumps({"text": transcribed_text}))
+                        # Start the server using the specified brain model
+                        start_server(brain_model)
+                        await websocket.send_text(json.dumps({"status": "Model starting", "brain_model": brain_model}))
 
-            processed_text = await send_text_for_processing(transcribed_text)
-            await websocket.send_text(json.dumps({"processed_text": processed_text}))
+                        setup_complete = True  # Mark setup as complete, allowing other processes to proceed
+                        await websocket.send_text(json.dumps({
+                            "message": "Setup complete. You can now start sending data for processing."
+                        }))
+                    else:
+                        await websocket.send_text(json.dumps({"error": "All setup parameters must be provided"}))
+                except json.JSONDecodeError:
+                    await websocket.send_text(json.dumps({"error": "Invalid JSON format"}))
+                    continue
+        
+            else:
+                # Once the model is selected, handle other activities such as audio processing
+                audio_data = await websocket.receive_bytes()
 
-            modified_text_search = re.search(r"\nAva(?::(?:\[.*?\])?)?\s*(.*?)(?=\n\w+:|$)", processed_text)
-            modified_text = modified_text_search.group(1) if modified_text_search else ""
+                # Transcribe the audio using the external Whisper service
+                async with websockets.connect("ws://localhost:5000/ws") as ws:
+                    await ws.send(audio_data)
+                    transcribed_text = await ws.recv()
 
-            # Send the processed text to the Piper FastAPI service via WebSocket                                                                                                                                                                                                                                                              
-            async with websockets.connect("ws://localhost:8000/ws/1") as piper_ws:
-                # Prepare and send JSON data to Piper service                                                                                                                                                                                                                                                                                 
-                json_data = json.dumps({"text": modified_text})
-                await piper_ws.send(json_data)
+                # Assume location data might be sent right after audio
+                try:
+                    # Attempt to receive a JSON message with location data
+                    json_data = await websocket.receive_text()
+                    data = json.loads(json_data)
+                    if "locationMessage" in data:
+                        transcribed_text += " " + data["locationMessage"]
+                except:
+                    # If no JSON message or wrong format, just proceed
+                    pass
 
-                # Receive the audio data from Piper service                                                                                                                                                                                                                                                                                   
-                audio_data = await piper_ws.recv()
+                # Send the transcribed text back to the frontend
+                await websocket.send_text(json.dumps({"text": transcribed_text}))
 
-                # Send the audio data back to the client as binary data                                                                                                                                                                                                                                                                       
-                await websocket.send_bytes(audio_data)
+                processed_text = await send_text_for_processing(prompt, anti_prompt, assistant_name, transcribed_text)
+                await websocket.send_text(json.dumps({"processed_text": processed_text}))
 
-        except websockets.exceptions.ConnectionClosed as e:
-            print(f"WebSocket connection closed: {e}")
-            break
-        except Exception as e:
-            print(f"An error occurred: {e}")
-            break
+                #modified_text_search = re.search(r"\nAva:\s*(?:\[[^\]]*\])*\s*(.*?)(?=\n\w+:|$)", processed_text)
+                #modified_text = modified_text_search.group(1) if modified_text_search else ""
+                modified_text = processed_text
+
+                # Send the processed text to the Piper FastAPI service via WebSocket
+                async with websockets.connect("ws://localhost:8000/ws/1") as piper_ws:
+                    json_data = json.dumps({"text": modified_text, "model": voice_model})
+                    await piper_ws.send(json_data)
+
+                    # Receive the audio data from Piper service
+                    audio_data = await piper_ws.recv()
+
+                    # Send the audio data back to the client as binary data
+                    await websocket.send_bytes(audio_data)
+
+    except websockets.exceptions.ConnectionClosed as e:
+        print(f"WebSocket connection closed: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=6000)
