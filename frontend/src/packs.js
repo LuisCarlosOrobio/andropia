@@ -1,11 +1,17 @@
 /**
- * Fetching avatar packs and their models.
+ * Fetching avatar packs and instantiating bodies.
  *
- * Loading is lazy and per-pack: a world referencing three bodies loads three
- * models, not every pack on disk. Failures are contained — a body that will
- * not load leaves its being as a capsule with a visible warning rather than
- * taking down the scene, because one broken avatar should not cost you the
- * whole world.
+ * Two beings may wear the same pack — a world with three robots is one pack
+ * and three bodies. So the **bytes** are cached and shared, while each being
+ * gets its own instance with its own scene graph, skeleton and animation
+ * mixer. Sharing the instance instead would put two beings in one mesh at
+ * one position, which looks exactly like one of them failing to spawn.
+ *
+ * Instantiating means parsing the file again per being. That is real work
+ * for a 21 MB VRM, but it is correct for both containers — three-vrm has no
+ * general clone, and a plain `Object3D.clone()` does not handle skinned
+ * meshes. If instantiation ever becomes a bottleneck the fix is
+ * `SkeletonUtils.clone` for plain glTF and keeping the parse for VRM.
  */
 
 import { loadBody } from './body.js'
@@ -27,35 +33,52 @@ export async function fetchPacks() {
   return byId
 }
 
-/**
- * A cache that loads each model at most once, even if several beings ask
- * for it simultaneously — the promise is cached, not just the result.
- */
 export function createBodyCache(packs) {
-  const pending = new Map()
+  // packId -> Promise<ArrayBuffer>. Fetched at most once even if several
+  // beings ask simultaneously, because the promise is cached rather than
+  // the result.
+  const bytes = new Map()
+
+  function fetchBytes(pack) {
+    if (!bytes.has(pack.id)) {
+      bytes.set(
+        pack.id,
+        fetch(pack.model).then((r) => {
+          if (!r.ok) throw new Error(`${pack.model} returned ${r.status}`)
+          return r.arrayBuffer()
+        })
+      )
+    }
+    return bytes.get(pack.id)
+  }
 
   return {
-    /** @returns {Promise<Body|null>} null if the pack is unknown or broken */
-    async get(packId) {
+    /**
+     * A body for one being.
+     *
+     * @param packId  which pack to wear
+     * @param beingId who is wearing it — seeds the animation phase, so two
+     *                beings in identical bodies do not breathe and blink in
+     *                lockstep, which is uncanny in a way that is hard to
+     *                name and impossible to miss once seen.
+     * @returns {Promise<Body|null>} null if unknown or unloadable
+     */
+    async create(packId, beingId) {
       if (!packId) return null
 
-      if (!pending.has(packId)) {
-        const pack = packs.get(packId)
-        if (!pack) {
-          console.warn(`[andropia] no avatar pack named "${packId}"`)
-          pending.set(packId, Promise.resolve(null))
-        } else {
-          pending.set(
-            packId,
-            loadBody(pack).catch((error) => {
-              console.error(`[andropia] failed to load body "${packId}":`, error)
-              return null
-            })
-          )
-        }
+      const pack = packs.get(packId)
+      if (!pack) {
+        console.warn(`[andropia] no avatar pack named "${packId}"`)
+        return null
       }
 
-      return pending.get(packId)
+      try {
+        const buffer = await fetchBytes(pack)
+        return await loadBody(pack, buffer, beingId)
+      } catch (error) {
+        console.error(`[andropia] could not build a body from "${packId}":`, error)
+        return null
+      }
     },
 
     has(packId) {

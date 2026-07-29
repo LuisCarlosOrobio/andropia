@@ -154,7 +154,7 @@ export class Stage {
     group.add(speech)
 
     this.scene.add(group)
-    const entry = { group, placeholder, body: null, label, speech, requested: false }
+    const entry = { id, group, placeholder, body: null, label, speech, requested: false }
     this.beings.set(id, entry)
     return entry
   }
@@ -207,7 +207,7 @@ export class Stage {
     if (entry.requested || !this.bodyCache || !packId) return
     entry.requested = true
 
-    this.bodyCache.get(packId).then((body) => {
+    this.bodyCache.create(packId, entry.id).then((body) => {
       // A null body leaves the capsule in place. That is deliberate: a
       // visible placeholder says "this avatar did not load" far more
       // clearly than a being that silently vanishes.

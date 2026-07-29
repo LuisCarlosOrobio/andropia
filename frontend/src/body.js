@@ -18,18 +18,28 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
+import { applyExpressions, applyGaze, applyPose } from './anim/apply.js'
+import { blendLayers } from './anim/pose.js'
+import { blinkWeight, layersFor, visemeWeights } from './anim/layers.js'
 
 // Crossfade time between locomotion states. Short enough to feel responsive,
 // long enough that a being does not snap between standing and walking.
 const LOCOMOTION_FADE = 0.22
 
-export async function loadBody(pack) {
+/**
+ * Build one body from already-fetched bytes.
+ *
+ * Takes a buffer rather than a URL so the caller can share the download
+ * across several beings wearing the same pack, while each still gets its
+ * own skeleton and mixer.
+ */
+export async function loadBody(pack, buffer, beingId = pack.id) {
   const loader = new GLTFLoader()
   if (pack.type === 'vrm') {
     loader.register((parser) => new VRMLoaderPlugin(parser))
   }
 
-  const gltf = await loader.loadAsync(pack.model)
+  const gltf = await loader.parseAsync(buffer, '')
   const vrm = gltf.userData.vrm ?? null
 
   if (vrm) {
@@ -42,11 +52,11 @@ export async function loadBody(pack) {
     })
   }
 
-  return new Body(pack, gltf, vrm)
+  return new Body(pack, gltf, vrm, beingId)
 }
 
 export class Body {
-  constructor(pack, gltf, vrm) {
+  constructor(pack, gltf, vrm, beingId = pack.id) {
     this.pack = pack
     this.vrm = vrm
     this.root = vrm ? vrm.scene : gltf.scene
@@ -66,6 +76,17 @@ export class Body {
     this.currentLocomotion = null
     this.currentGesture = null
 
+    // Seconds of animation time. Advanced by dt rather than read from a
+    // clock, so two runs of the same recording animate identically.
+    this.clock = 0
+    // Per-body offset, so a crowd does not breathe or blink in unison —
+    // which is uncanny in a way that is hard to name and impossible to miss.
+    this.phase = hashPhase(beingId)
+
+    // A gaze target, moved rather than reallocated each frame.
+    this.gazeTarget = new THREE.Object3D()
+    this.group.add(this.gazeTarget)
+
     // glTF morph targets, resolved once: name -> [mesh, index] pairs, since
     // one named target may exist on several primitives.
     this.morphs = new Map()
@@ -80,17 +101,36 @@ export class Body {
 
   /** Push a computed BodyState into the scene. The only mutation here. */
   apply(state, dt) {
+    this.clock += dt
+
     const [x, y, z] = state.position
     this.group.position.set(x, y, z)
     if (state.yaw !== null) this._lastYaw = state.yaw
     this.group.rotation.y = this._lastYaw
 
-    this._applyExpressions(state.expressions)
     this._applyLocomotion(state.locomotion)
     this._applyGesture(state.gesture)
 
+    if (this.vrm) {
+      // Procedural: breathing, sway, blink, gaze and any gesture with no
+      // clip. Composed as data, applied once.
+      const options = { phase: this.phase }
+      const pose = blendLayers(layersFor(state, this.clock, options))
+      applyPose(this.vrm, pose)
+
+      applyExpressions(this.vrm, {
+        ...state.expressions,
+        ...visemeWeights(this.clock, Boolean(state.speech), options),
+        blink: blinkWeight(this.clock, options),
+      })
+
+      applyGaze(this.vrm, this.gazeTarget, state.gazeAt ?? null)
+    } else {
+      this._applyMorphs(state.expressions)
+    }
+
     this.mixer.update(dt)
-    // Spring bones read the skeleton after animation, so this must come
+    // Spring bones read the skeleton after everything else, so this comes
     // last. Hair and clothing are purely cosmetic and may be sloppy —
     // nothing here can affect what the simulation does next.
     if (this.vrm) this.vrm.update(dt)
@@ -115,20 +155,7 @@ export class Body {
     })
   }
 
-  _applyExpressions(weights) {
-    if (this.vrm?.expressionManager) {
-      const manager = this.vrm.expressionManager
-      // Reset every preset first, so a weight that disappears from the state
-      // actually clears rather than sticking at its last value.
-      for (const expression of manager.expressions) {
-        manager.setValue(expression.expressionName, 0)
-      }
-      for (const [name, weight] of Object.entries(weights)) {
-        manager.setValue(name, weight)
-      }
-      return
-    }
-
+  _applyMorphs(weights) {
     for (const [name, targets] of this.morphs) {
       const weight = weights[name] ?? 0
       for (const [mesh, index] of targets) {
@@ -181,4 +208,22 @@ export class Body {
 
     this.currentGesture = name
   }
+}
+
+
+/**
+ * A stable per-being phase offset in [0, 2π).
+ *
+ * Keyed on the being, not the pack: three robots in one world must not
+ * breathe and blink in lockstep. Derived by hashing rather than drawn
+ * randomly, so the same being always breathes on the same beat and a replay
+ * looks like the run it recorded.
+ */
+function hashPhase(id) {
+  let h = 2166136261
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) / 4294967296) * Math.PI * 2
 }
