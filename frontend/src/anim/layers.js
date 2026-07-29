@@ -39,11 +39,7 @@ export function idleLayer(t, { phase = 0, intensity = 1 } = {}) {
 
   return {
     ...REST,
-    spine: [
-      REST.spine?.[0] ?? 0 + breath * 0.018 * intensity,
-      sway * 0.02 * intensity,
-      drift * 0.012 * intensity,
-    ],
+    spine: [breath * 0.018 * intensity, sway * 0.02 * intensity, drift * 0.012 * intensity],
     chest: [breath * 0.026 * intensity, 0, 0],
     hips: [0, sway * 0.014 * intensity, drift * 0.01 * intensity],
     neck: [breath * -0.008 * intensity, drift * 0.03 * intensity, 0],
@@ -64,33 +60,71 @@ export function idleLayer(t, { phase = 0, intensity = 1 } = {}) {
 
 // -- locomotion ------------------------------------------------------------
 
+/** Radians per second of walk cycle. Two steps per full cycle. */
+export const WALK_RATE = 5.2
+
 /**
  * A walk, for bodies with no walk clip.
  *
- * Deliberately restrained: procedural locomotion is the one thing that
- * genuinely looks wrong if you push it, because people are exquisitely
- * sensitive to how walking looks. This does not attempt a stride — it adds
- * the counter-rotation and bob that read as *moving with purpose*, and lets
- * the body glide. Understated and plausible beats ambitious and uncanny.
+ * A pack that supplies a walk clip should use it; this is the fallback, and
+ * for VRM it is the only option, because essentially every VRM ships with
+ * zero animations.
  *
- * A pack that supplies a walk clip should use it; this is the fallback.
+ * The first version deliberately left the legs alone, reasoning that
+ * procedural locomotion without IK looks wrong. That was the wrong call: a
+ * being gliding across the ground reads as *broken*, while an imperfect
+ * walk reads as stylised. Doing something beats doing nothing.
+ *
+ * Still not IK. There is no foot planting, so at speeds far from the tuned
+ * stride rate the feet will skate. Driving the cycle from ground speed
+ * rather than wall time would fix most of that, and is the obvious next
+ * refinement.
  */
 export function walkLayer(t, { phase = 0 } = {}) {
-  const cycle = t * 4.6 + phase // ~2.3 strides/second
+  const cycle = t * WALK_RATE + phase
   const step = Math.sin(cycle)
-  const bob = Math.abs(Math.cos(cycle))
+  const opposite = Math.sin(cycle + Math.PI)
+  // Twice the stride frequency: the body rises on each foot, not each cycle.
+  const bob = Math.cos(cycle * 2)
 
   return {
-    hips: [0.02, step * 0.09, 0],
-    spine: [0.03, step * -0.05, 0],
-    chest: [0.02, step * -0.03, 0],
-    // Arms counter-swing against the hips, which is most of what makes a
-    // walk read as a walk rather than a slide.
-    leftUpperArm: [step * 0.34, 0, REST.leftUpperArm[2] + 0.06],
-    rightUpperArm: [step * -0.34, 0, REST.rightUpperArm[2] - 0.06],
-    leftLowerArm: [Math.max(0, step) * 0.2, REST.leftLowerArm[1], REST.leftLowerArm[2]],
-    rightLowerArm: [Math.max(0, -step) * 0.2, REST.rightLowerArm[1], REST.rightLowerArm[2]],
-    head: [bob * -0.015, 0, 0],
+    // Legs. A being that glides reads as broken, whereas an imperfect walk
+    // reads as stylised — so this errs toward doing something rather than
+    // nothing. It is not IK: there is no foot planting, so at very high
+    // speeds the feet will skate. Matching stride rate to ground speed
+    // would fix most of that and is the obvious next refinement.
+    //
+    // Legs point −Y at rest, so a negative X rotation swings forward.
+    leftUpperLeg: [-step * 0.52, 0, 0],
+    rightUpperLeg: [-opposite * 0.52, 0, 0],
+    // Knees only bend one way. Clamping at zero is what keeps the joint
+    // from inverting, which is the single most obviously-wrong thing a
+    // procedural leg can do.
+    leftLowerLeg: [Math.max(0, Math.sin(cycle - 0.9)) * 0.95, 0, 0],
+    rightLowerLeg: [Math.max(0, Math.sin(cycle - 0.9 + Math.PI)) * 0.95, 0, 0],
+    // Ankles roughly counter the thigh so the feet stay near level.
+    leftFoot: [step * 0.26, 0, 0],
+    rightFoot: [opposite * 0.26, 0, 0],
+
+    // Torso. Small counter-rotation against the hips, and a lean into the
+    // direction of travel.
+    hips: [0.03, step * 0.1, bob * 0.02],
+    spine: [0.04, step * -0.06, 0],
+    chest: [0.02, step * -0.04, 0],
+
+    // Arms counter-swing against the legs — the left arm goes back as the
+    // left leg comes forward. Getting this backwards produces a gait that is
+    // subtly and unmistakably wrong in a way that is hard to name.
+    //
+    // These are **deltas**. The idle layer already places the arms at rest,
+    // and layers add, so repeating the rest rotation here applied it twice
+    // and swung the arms far past the body.
+    leftUpperArm: [step * 0.38, 0, 0.05],
+    rightUpperArm: [opposite * 0.38, 0, -0.05],
+    leftLowerArm: [Math.max(0, step) * 0.24, 0, 0],
+    rightLowerArm: [Math.max(0, opposite) * 0.24, 0, 0],
+
+    head: [bob * -0.018, 0, 0],
   }
 }
 

@@ -16,6 +16,7 @@ import {
   layersFor,
   sampleKeys,
   visemeWeights,
+  WALK_RATE,
   walkLayer,
 } from './layers.js'
 import { REST, addPose, blendLayers, easeBack, lerpPose, scalePose } from './pose.js'
@@ -154,8 +155,9 @@ describe('walk', () => {
   })
 
   it('cycles', () => {
+    // Derived from the exported rate, so the two cannot drift apart.
     const a = walkLayer(0)
-    const b = walkLayer((2 * Math.PI) / 4.6)
+    const b = walkLayer((2 * Math.PI) / WALK_RATE)
     expect(a.leftUpperArm[0]).toBeCloseTo(b.leftUpperArm[0], 5)
   })
 })
@@ -334,5 +336,65 @@ describe('composition', () => {
         expect(Math.abs(value), bone).toBeLessThan(Math.PI)
       }
     }
+  })
+})
+
+describe('walk regressions', () => {
+  it('emits arm deltas, never absolute rest rotations', () => {
+    // Layers ADD. The first version repeated REST here, so while walking the
+    // arms had rest applied twice and swung far past the body — reported as
+    // "her arms move but weirdly".
+    const pose = walkLayer(0.4)
+    expect(Math.abs(pose.leftUpperArm[2])).toBeLessThan(0.3)
+    expect(Math.abs(pose.rightUpperArm[2])).toBeLessThan(0.3)
+  })
+
+  it('stays near rest once blended with idle', () => {
+    for (let t = 0; t < 4; t += 0.05) {
+      const pose = blendLayers([{ pose: idleLayer(t) }, { pose: walkLayer(t) }])
+      // Comfortably short of straight out to the side, which is where the
+      // doubled rotation used to put it.
+      expect(Math.abs(pose.leftUpperArm[2])).toBeGreaterThan(0.9)
+      expect(Math.abs(pose.leftUpperArm[2])).toBeLessThan(1.7)
+    }
+  })
+
+  it('actually moves the legs', () => {
+    // Reported as "she just slides through the ground". Legs were excluded
+    // from TRACKED_BONES on purpose; gliding looks worse than an imperfect
+    // walk, so they are driven now.
+    const a = walkLayer(0)
+    const b = walkLayer(0.3)
+    expect(a.leftUpperLeg[0]).not.toBeCloseTo(b.leftUpperLeg[0], 3)
+    expect(a.rightUpperLeg[0]).not.toBeCloseTo(b.rightUpperLeg[0], 3)
+  })
+
+  it('swings the legs in opposition', () => {
+    for (const t of [0.1, 0.4, 0.9, 1.6]) {
+      const pose = walkLayer(t)
+      expect(Math.sign(pose.leftUpperLeg[0])).toBe(-Math.sign(pose.rightUpperLeg[0]))
+    }
+  })
+
+  it('never inverts a knee', () => {
+    // The single most obviously-wrong thing a procedural leg can do.
+    for (let t = 0; t < 6; t += 0.02) {
+      const pose = walkLayer(t)
+      expect(pose.leftLowerLeg[0]).toBeGreaterThanOrEqual(0)
+      expect(pose.rightLowerLeg[0]).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('counter-swings arms against legs', () => {
+    // Left arm forward with right leg forward is what reads as walking.
+    const pose = walkLayer(0.35)
+    expect(Math.sign(pose.leftUpperArm[0])).toBe(-Math.sign(pose.leftUpperLeg[0]))
+  })
+
+  it('bobs at twice the stride rate', () => {
+    // The body rises on each foot, not once per full cycle.
+    const period = (2 * Math.PI) / WALK_RATE
+    expect(walkLayer(0).hips[2]).toBeCloseTo(walkLayer(period).hips[2], 5)
+    expect(walkLayer(0).hips[2]).toBeCloseTo(walkLayer(period / 2).hips[2], 5)
   })
 })

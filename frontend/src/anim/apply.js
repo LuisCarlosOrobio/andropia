@@ -87,11 +87,14 @@ export function applyGaze(vrm, target, worldPosition) {
 /**
  * The bones the procedural system drives.
  *
- * Deliberately a fixed list rather than "every bone in the rig". Legs are
- * absent because procedural locomotion of the lower body looks wrong at any
- * effort level short of real IK — bodies glide, and a walk clip is the right
- * answer when one exists. Fingers are absent because nothing authored here
- * needs them and resetting them every frame would fight any clip that does.
+ * A fixed list rather than "every bone in the rig". Fingers are absent
+ * because nothing authored here needs them, and resetting them every frame
+ * would fight any clip that does.
+ *
+ * Legs were absent at first, on the reasoning that procedural locomotion
+ * without IK looks wrong. That was the wrong call: a being that glides
+ * across the ground reads as *broken*, while an imperfect walk reads as
+ * stylised. Doing something beats doing nothing here.
  */
 export const TRACKED_BONES = [
   'hips',
@@ -108,4 +111,10 @@ export const TRACKED_BONES = [
   'rightUpperArm',
   'rightLowerArm',
   'rightHand',
+  'leftUpperLeg',
+  'leftLowerLeg',
+  'leftFoot',
+  'rightUpperLeg',
+  'rightLowerLeg',
+  'rightFoot',
 ]
