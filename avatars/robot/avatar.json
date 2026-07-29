@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "protocol": 1,
+
+  "id": "robot",
+  "name": "Robot",
+  "type": "gltf",
+  "model": "RobotExpressive.glb",
+
+  "persona": "You are a small expressive robot. You are curious and direct, and you gesture more than you speak.",
+
+  "_comment_expressions": "This rig has three morph targets and no others. Mapping only what exists means the model is never told it can look happy when it cannot — an unsupported emotion is left out of its prompt rather than silently ignored at render time.",
+  "expressions": {
+    "angry": "Angry",
+    "sad": "Sad",
+    "surprised": "Surprised"
+  },
+
+  "_comment_motions": "Four gestures are backed by clips baked into the model. The other four are omitted deliberately: they fall back to procedural poses in normalised humanoid space, which is how a body with no clips at all still works.",
+  "motions": {
+    "wave": { "clip": "Wave" },
+    "nod": { "clip": "Yes" },
+    "shake": { "clip": "No" },
+    "cheer": { "clip": "Dance" }
+  },
+
+  "license": {
+    "id": "CC0-1.0",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "attribution": "Tomás Laulhé (Quaternius); modifications by Don McCurdy",
+    "notice": "CC0 imposes no conditions. Credit is given voluntarily. See MODEL-README.md for the statement as published."
+  }
+}

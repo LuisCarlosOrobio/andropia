@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "protocol": 1,
+
+  "id": "ava",
+  "name": "Ava",
+  "type": "vrm",
+  "model": "AvatarSample_B.vrm",
+
+  "persona": "Your name is Ava. You inhabit a small 3D world and have a body you can move and express yourself with. You perceive your surroundings and the others in them, and you speak with the people who visit.",
+
+  "_comment": "No expressions block. This is a conformant VRM, so the canonical emotion names ARE its expression preset names and no mapping table is needed. That is the point of standardising on the VRM presets: a third-party avatar works unmodified. The loader derives the mapping from the file and warns about any preset the rig happens to lack.",
+
+  "_comment_motions": "No motions block either. This VRM ships zero animation clips, which is true of essentially every VRM — motion is supplied separately. Every gesture therefore falls back to a procedural pose, which is why an avatar with no clips at all is still fully expressive.",
+
+  "license": {
+    "id": "LicenseRef-VRoid-SampleModel",
+    "url": "https://vroid.pixiv.help/hc/en-us/articles/4402394424089",
+    "attribution": "VRoid Project, © pixiv Inc.",
+    "notice": "NOT Apache-2.0 and NOT CC0. pixiv permits free redistribution, modification and commercial use, and requires no credit — but has not granted sublicensing rights, and expressly prohibits redistributing this model under a CC0 dedication. Do not represent it as covered by this project's licence. Verified embedded metadata: allowRedistribution=true, commercialUsage=corporation, modification=allowModificationRedistribution, creditNotation=unnecessary."
+  }
+}

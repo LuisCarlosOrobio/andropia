@@ -28,12 +28,16 @@ models/
 *.onnx
 *.safetensors
 
-# --- Avatar & world packs (users bring their own; examples are explicit) ---
+# --- Avatar & world packs ---
+# Users drop their own packs here; the bundled examples are committed
+# explicitly. Large model files are fetched rather than vendored.
 avatars/*
-!avatars/.gitkeep
+!avatars/robot/
+!avatars/ava/
 !avatars/README.md
+avatars/*/*.vrm
+avatars/*/RETRIEVED.txt
 worlds/*
-!worlds/.gitkeep
 !worlds/README.md
 
 # --- Simulation artifacts ---

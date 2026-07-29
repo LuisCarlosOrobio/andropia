@@ -230,3 +230,41 @@ def test_the_hub_is_the_single_owner_of_the_session(client):
         over_socket = ws.receive_json()["tick"]
 
     assert over_http == over_socket == hub.session.world.tick == 7
+
+
+# --------------------------------------------------------------------------
+# packs
+# --------------------------------------------------------------------------
+
+
+def test_packs_are_listed_with_their_capabilities(client):
+    body = client.get("/api/packs").json()
+    robot = next(p for p in body["packs"] if p["id"] == "robot")
+
+    assert robot["type"] == "gltf"
+    assert robot["model"].startswith("/packs/")
+    assert set(robot["emotions"]) == {"neutral", "angry", "sad", "surprised"}
+    assert robot["clips"]["wave"] == "Wave"
+    assert robot["license"] == "CC0-1.0"
+
+
+def test_broken_packs_are_reported_not_hidden(client):
+    """A typo in a manifest should be visible, not silently shorten the list."""
+    body = client.get("/api/packs").json()
+    assert "broken" in body
+
+
+def test_model_files_are_served(client):
+    r = client.get("/packs/robot/RobotExpressive.glb")
+    assert r.status_code == 200
+    assert r.content[:4] == b"glTF"
+
+
+def test_pack_serving_refuses_to_escape_its_directory(client):
+    """StaticFiles normalises and enforces containment; verify it holds."""
+    for attempt in (
+        "/packs/../pyproject.toml",
+        "/packs/robot/../../pyproject.toml",
+        "/packs/%2e%2e/pyproject.toml",
+    ):
+        assert client.get(attempt).status_code in (404, 400), attempt

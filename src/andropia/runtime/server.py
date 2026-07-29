@@ -34,12 +34,15 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..packs import discover
 from ..sim import DoGesture, Emote, Goto, Look, MoveTo, Speak, Stop, Vec3, World
 from . import clock, view
 from . import session as sess
 from .session import Session
 
-FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+FRONTEND_DIR = REPO_ROOT / "frontend" / "dist"
+AVATARS_DIR = REPO_ROOT / "avatars"
 
 _INTENTS = {
     "goto": Goto,
@@ -166,6 +169,43 @@ def create_app(world: World, *, autostart: bool = False) -> FastAPI:
         async with hub.lock:
             hub.session = sess.propose(hub.session, parsed)
         return {"queued": len(hub.session.pending)}
+
+    # --------------------------------------------------------------- packs
+
+    @app.get("/api/packs")
+    async def packs() -> dict[str, Any]:
+        """Every avatar pack found, including the broken ones.
+
+        Failures are reported rather than filtered out. A user who made a
+        typo in a manifest should see why their avatar is missing, not a
+        list that is quietly one shorter than they expect.
+        """
+        found = discover(AVATARS_DIR)
+        return {
+            "packs": [
+                {
+                    "id": r.pack.id,
+                    "name": r.pack.name,
+                    "type": r.pack.type,
+                    "model": f"/packs/{d}/{r.pack.model}",
+                    "emotions": list(r.pack.supported_emotions),
+                    "gestures": list(r.pack.supported_gestures),
+                    "clips": {k: v.clip for k, v in r.pack.motions.items()},
+                    "license": r.pack.license.id,
+                    "attribution": r.pack.license.attribution,
+                    "warnings": list(r.warnings),
+                }
+                for d, r in found.items()
+                if r.ok
+            ],
+            "broken": {d: str(r) for d, r in found.items() if not r.ok},
+        }
+
+    # Model files. A StaticFiles mount, deliberately — it normalises paths
+    # and enforces containment. Hand-rolled path concatenation is what made
+    # the previous codebase's file serving a latent arbitrary read.
+    if AVATARS_DIR.is_dir():
+        app.mount("/packs", StaticFiles(directory=AVATARS_DIR), name="packs")
 
     # -------------------------------------------------------------- static
 
