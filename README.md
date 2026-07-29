@@ -7,10 +7,15 @@ and talking to each other.
 ## See it
 
 ```bash
-python -m andropia.runtime.server
+make install   # once
+make dev
 ```
 
 Then open **http://127.0.0.1:8600**.
+
+`make dev` bundles the frontend before serving, which matters: the server
+serves `frontend/dist`, so running it directly shows you whatever was built
+last — or nothing at all on a fresh clone.
 
 Three beings in a world, walking to landmarks, gesturing, changing
 expression and speaking. They are driven by a deterministic autopilot —
@@ -45,8 +50,7 @@ simulation reads a clock or a global RNG, which is what makes replay,
 snapshotting and fast-forward fall out rather than needing to be built.
 
 ```bash
-pytest              # 146 tests
-cd frontend && npm test   # 62 tests, none need a browser
+make check   # 146 Python tests, 115 JS tests, none need a browser
 ```
 
 ## Licence

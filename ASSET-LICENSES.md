@@ -109,23 +109,6 @@ surprised`; visemes `aa, ih, ou, ee, oh`; blinks `blink, blinkLeft, blinkRight`.
 
 ---
 
-## `static/dist/src/Grass.js`, `shaders.js`
-
-| | |
-|---|---|
-| **License** | ⚠️ **Unresolved — see below** |
-| **Origin** | A WebGL stylized-grass demo, forked via CodeSandbox |
-
-These files were inherited from a third-party template. Evidence of origin: the
-package name is still `webgl-grass`, a CodeSandbox `sandbox.config.json` remains
-in the tree, and `Grass.js` credits `smythdesign.com/blog/stylized-grass-webgl`.
-
-**The upstream license was never carried over when the template was forked.**
-This is an open item: either obtain and record the upstream terms, or replace
-these files with an original implementation before relying on them.
-
----
-
 ## Assets removed from this repository and its history
 
 Recorded for transparency. These were removed from **all** commits via
@@ -141,6 +124,8 @@ leaves the blobs reachable in history.
 | `node_modules/` (both trees), `.cache/` | Vendored dependencies and bundler caches; 17,800+ files, ~230 MB. |
 | `*.DS_Store` | macOS metadata; these leak directory listings including files never committed. |
 | `*.pyc` | Compiled bytecode embedding a prior developer's absolute paths. |
+| `static/` (stale bundle, incl. `Grass.js`, `shaders.js`) | Deleted from the working tree, **not** from history. A stale Parcel build of the previous single-user app, which the current server does not serve — it serves `frontend/dist`. `Grass.js` and `shaders.js` were forked from a WebGL stylized-grass demo via CodeSandbox **without carrying the upstream license across**, so their terms were never established. Rather than ship an Apache-2.0 release around an unresolved license, they are gone. Stylized grass is wanted again for world packs, and the standing recommendation holds: write an original implementation, or obtain and record the upstream terms first. |
+| `static/dist/src/license.txt` | An orphaned CC-BY-NC-SA-4.0 credit for the "Oono Akiroid" models, which had already been purged from all history (see above). Keeping a NonCommercial credit file for assets that are not present implies the project bundles NC material when it does not. |
 
 ---
 
