@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..beings import runner as beings
 from ..demo import autopilot
 from ..packs import discover
 from ..sim import DoGesture, Emote, Goto, Look, MoveTo, Speak, Stop, Vec3, World
@@ -69,23 +71,42 @@ class Hub:
     session: Session
     viewers: set[WebSocket] = field(default_factory=set)
     task: asyncio.Task | None = None
+    minds_task: asyncio.Task | None = None
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     #: Run the stand-in autopilot instead of waiting for real agents.
     drive_beings: bool = False
+    #: Language models driving beings, if any were configured. When this is
+    #: present the autopilot stays off: two things proposing intents for the
+    #: same being would fight, and the model should win.
+    cast: beings.Cast | None = None
+    #: Intents produced by minds since the last tick. A plain list, appended
+    #: from thinking tasks and drained by the tick loop under the lock — which
+    #: keeps `propose` non-async and keeps the tick loop the only writer of
+    #: `session`.
+    pending: list = field(default_factory=list)
 
 
 def create_app(
-    world: World, *, autostart: bool = False, drive_beings: bool = False
+    world: World,
+    *,
+    autostart: bool = False,
+    drive_beings: bool = False,
+    cast: beings.Cast | None = None,
 ) -> FastAPI:
     """Build an app serving one world.
 
-    ``drive_beings`` runs the deterministic autopilot, which proposes the
-    kinds of intents an agent will once Phase 3 lands. It exists so the whole
-    pipeline can be seen working by running one command.
+    ``cast`` wires language models to beings. When given, those beings think for
+    themselves and the autopilot is switched off for everyone — two sources
+    proposing intents for one being would fight, and the model should win.
+
+    ``drive_beings`` runs the deterministic autopilot instead. It remains useful
+    with no model to hand: it exercises the whole pipeline from intent to
+    rendered body, and it is what the animation work was built against.
     """
     hub = Hub(session=sess.begin(world, mode="running" if autostart else "paused"))
-    hub.drive_beings = drive_beings
+    hub.cast = cast
+    hub.drive_beings = drive_beings and cast is None
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -96,14 +117,17 @@ def create_app(
         same scope.
         """
         hub.task = asyncio.create_task(_run(hub))
+        if hub.cast is not None:
+            hub.minds_task = asyncio.create_task(_think(hub))
         try:
             yield
         finally:
             hub.stop.set()
-            if hub.task is not None:
-                hub.task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await hub.task
+            for task in (hub.task, hub.minds_task):
+                if task is not None:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
     app = FastAPI(title="Andropia", version="0.1.0", lifespan=lifespan)
     app.state.hub = hub
@@ -350,6 +374,11 @@ async def _run(hub: Hub) -> None:
                         proposed = autopilot(hub.session.world)
                         if proposed:
                             hub.session = sess.propose(hub.session, *proposed)
+                    if hub.pending:
+                        # Drained rather than read, so an intent cannot be
+                        # applied twice if a tick is slow.
+                        thought, hub.pending[:] = tuple(hub.pending), []
+                        hub.session = sess.propose(hub.session, *thought)
                     hub.session = sess.tick(hub.session)
                 await _broadcast(hub)
 
@@ -361,6 +390,34 @@ async def _run(hub: Hub) -> None:
             accumulator = 0.0
 
         await asyncio.sleep(clock.sleep_for(hub.session))
+
+
+async def _think(hub: Hub) -> None:
+    """Let the configured beings think, alongside the tick loop.
+
+    The runner is given two callables rather than the hub, so it cannot become
+    a second owner of the session — the tick loop stays the only writer. This
+    is the same mistake that bit `clock.drive` earlier: it threaded its own
+    session, and intents proposed over HTTP were silently overwritten.
+
+    Proposals land in a plain list rather than calling `sess.propose` directly.
+    `propose` returns a *new* session, so a thinking task that read the session
+    and replaced it would silently drop whatever the tick loop had done in
+    between. Appending to a list needs no lock — there is no await between the
+    read and the write, so the event loop cannot interleave — and the tick loop
+    drains it while holding the lock it already holds.
+    """
+
+    def snapshot() -> World:
+        return hub.session.world
+
+    def propose(intents) -> None:
+        # Queued for the next tick. Deliberately not applied here: the tick is
+        # where intents enter the recording, and that is what makes a run with
+        # language models in it replayable without them.
+        hub.pending.extend(intents)
+
+    await beings.drive(hub.cast, snapshot, propose, stop=hub.stop)
 
 
 async def _broadcast(hub: Hub) -> None:
@@ -385,18 +442,54 @@ async def _broadcast(hub: Hub) -> None:
         hub.viewers.discard(ws)
 
 
+#: Starting personalities for the demo world.
+#:
+#: Short on purpose. A persona is a nudge, not a script — a paragraph of
+#: instructions produces a being that recites its brief, whereas a line or two
+#: of disposition produces one that behaves. Different enough from each other
+#: that a conversation between them has somewhere to go.
+PERSONAS = {
+    "ava": (
+        "You are quiet and watchful, and you notice things before you mention "
+        "them. You like water and open space. You would rather ask than "
+        "explain."
+    ),
+    "mistral": (
+        "You are restless and direct. You would rather be walking somewhere "
+        "than standing still, and you say what you think without much "
+        "padding."
+    ),
+    "claude": (
+        "You are curious to a fault and easily delighted by small details. You "
+        "get interested in whatever is nearest and follow it further than "
+        "anyone asked."
+    ),
+}
+
+
 def demo_world() -> World:
     """A small world to look at, for `python -m andropia.runtime.server`."""
     from ..sim import Entity, Landmark, Vec3
 
     return World(
         entities={
-            "ava": Entity(id="ava", pos=Vec3(0.0, 0.0, 0.0), avatar_pack="ava"),
+            "ava": Entity(
+                id="ava",
+                pos=Vec3(0.0, 0.0, 0.0),
+                avatar_pack="ava",
+                persona=PERSONAS["ava"],
+            ),
             "mistral": Entity(
-                id="mistral", pos=Vec3(4.0, 0.0, 2.0), avatar_pack="robot"
+                id="mistral",
+                pos=Vec3(4.0, 0.0, 2.0),
+                avatar_pack="robot",
+                persona=PERSONAS["mistral"],
             ),
             "claude": Entity(
-                id="claude", pos=Vec3(-3.0, 0.0, 3.0), avatar_pack="robot"
+                id="claude",
+                pos=Vec3(-3.0, 0.0, 3.0),
+                avatar_pack="robot",
+                persona=PERSONAS["claude"],
             ),
         },
         landmarks={
@@ -407,9 +500,41 @@ def demo_world() -> World:
     )
 
 
+def demo_cast(world: World) -> beings.Cast | None:
+    """Wire every being in the world to a model, if one is configured.
+
+    One model for all of them by default, which is the common case: a single
+    local server, three beings, three different personas. Their behaviour
+    differs because their persona, position and memory differ — not because
+    they run on different weights.
+
+    Returns None when no endpoint is configured, so the demo still runs on a
+    machine with no model to hand. That is not a fallback for its own sake: the
+    autopilot is what the whole animation and rendering pipeline was built
+    against, and it stays useful for exactly that.
+    """
+    if not os.environ.get(beings.ENV_BASE_URL):
+        return None
+
+    model = beings.Model.from_env()
+    return beings.personas(world, dict.fromkeys(world.entities, model))
+
+
 if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
-    app = create_app(demo_world(), autostart=True, drive_beings=True)
-    print("\n  Andropia — http://127.0.0.1:8600\n")
+    world = demo_world()
+    cast = demo_cast(world)
+
+    app = create_app(world, autostart=True, drive_beings=True, cast=cast)
+
+    print("\n  Andropia — http://127.0.0.1:8600")
+    if cast is None:
+        print("  beings: deterministic autopilot")
+        print(f"  set {beings.ENV_BASE_URL} to let language models drive them\n")
+    else:
+        model = next(iter(cast.minds.values())).model
+        print(f"  beings: {', '.join(sorted(cast.minds))}")
+        print(f"  model:  {model.name} at {model.base_url}\n")
+
     uvicorn.run(app, host="127.0.0.1", port=8600, log_level="warning")

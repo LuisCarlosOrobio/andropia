@@ -31,7 +31,9 @@ from .types import (
     Idle,
     Intent,
     Look,
+    Memory,
     MoveTo,
+    Remember,
     Speak,
     Speech,
     Stop,
@@ -44,6 +46,17 @@ from .types import (
 # real timings. ~2.8 words/second is unhurried conversational pace.
 _WORDS_PER_SECOND = 2.8
 _MIN_SPEECH_SECONDS = 0.8
+
+#: Memories one being may hold. A cap rather than a policy: beyond this the
+#: least salient is dropped, so a long-lived being keeps what mattered instead
+#: of the most recent thing that happened.
+MEMORY_LIMIT = 64
+
+#: Lines of shared transcript the world keeps. Perception reads only the last
+#: handful and older lines belong in memory, so an uncapped transcript is pure
+#: growth — invisible for a demo, and the thing that makes a world left running
+#: overnight snapshot to something enormous.
+TRANSCRIPT_LIMIT = 256
 
 
 def step(
@@ -113,7 +126,12 @@ def _apply_intents(world: World, intents: tuple[Intent, ...]) -> World:
                 entities[ent.id] = replace(ent, emotion=it.emotion, emotion_weight=1.0)
 
             case Look():
-                entities[ent.id] = replace(ent, gaze=it.at)
+                # A being cannot look at itself. The renderer would aim its
+                # gaze at its own head, and a model handed its own name back
+                # will occasionally take it — which is how `ava gaze=ava`
+                # turned up the first time this ran against a real reply.
+                gaze = None if it.at == ent.id else it.at
+                entities[ent.id] = replace(ent, gaze=gaze)
 
             case Stop():
                 entities[ent.id] = replace(ent, action=Idle(), vel=ent.vel.__class__())
@@ -125,9 +143,35 @@ def _apply_intents(world: World, intents: tuple[Intent, ...]) -> World:
                     duration_ticks=_speech_ticks(it.text, world.dt),
                 )
                 entities[ent.id] = replace(ent, speech=speech)
-                transcript = (*transcript, Utterance(world.tick, ent.id, it.text))
+                transcript = (*transcript, Utterance(world.tick, ent.id, it.text))[
+                    -TRANSCRIPT_LIMIT:
+                ]
+
+            case Remember():
+                entities[ent.id] = replace(
+                    ent,
+                    memory=_remember(
+                        ent.memory,
+                        Memory(tick=world.tick, text=it.text, salience=it.salience),
+                    ),
+                )
 
     return replace(world, entities=entities, transcript=transcript)
+
+
+def _remember(memory: tuple[Memory, ...], fresh: Memory) -> tuple[Memory, ...]:
+    """Add a memory, evicting the least worth keeping if over the cap.
+
+    Evicts by salience first and age second, so a being forgets the trivial
+    before the old. Sorting on an explicit key rather than relying on tuple
+    order keeps the choice deterministic when several memories tie.
+    """
+    grown = (*memory, fresh)
+    if len(grown) <= MEMORY_LIMIT:
+        return grown
+
+    doomed = min(grown, key=lambda m: (m.salience, m.tick, m.text))
+    return tuple(m for m in grown if m is not doomed)
 
 
 def _speech_ticks(text: str, dt: float) -> int:

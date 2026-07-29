@@ -116,6 +116,15 @@ class Entity:
     speech: Speech | None = None
     memory: tuple[Memory, ...] = ()
     avatar_pack: str = ""
+    # Who this being is, in words, as its own prompt will describe it.
+    #
+    # World data rather than deployment config, for the same reason
+    # ``avatar_pack`` is: the simulation never reads it, but a snapshot that
+    # cannot say who its beings were is not a snapshot of the run. Forking is a
+    # headline feature, and a fork that lost everyone's personality would be
+    # broken. Which *model* answers for a being is a separate matter and lives
+    # outside the world, along with its endpoint and key.
+    persona: str = ""
     # Per-being random stream, so adding a being cannot change what the
     # others do.
     rng: int = 0
@@ -204,7 +213,27 @@ class Stop:
     kind: Literal["stop"] = "stop"
 
 
-Intent: TypeAlias = Speak | Goto | MoveTo | DoGesture | Emote | Look | Stop
+@dataclass(frozen=True, slots=True)
+class Remember:
+    """Commit something to one being's memory.
+
+    An intent rather than a side effect, so it lands in the intent log and a
+    replay reproduces not just what beings did but what they knew when they did
+    it. That is the whole reason ``Memory`` lives inside ``World``.
+
+    Deliberately chosen rather than automatic. Recording every utterance within
+    earshot would fill memory with a transcript the being can already see, and
+    an agent that decides what was worth noticing is both cheaper and more
+    interesting than one issued a firehose.
+    """
+
+    entity: EntityId
+    text: str
+    salience: float = 1.0
+    kind: Literal["remember"] = "remember"
+
+
+Intent: TypeAlias = Speak | Goto | MoveTo | DoGesture | Emote | Look | Stop | Remember
 
 
 # --------------------------------------------------------------------------

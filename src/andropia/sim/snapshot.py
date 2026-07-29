@@ -147,6 +147,7 @@ def _dec_entity(d: dict[str, Any]) -> Entity:
             for m in d["memory"]
         ),
         avatar_pack=d["avatar_pack"],
+        persona=d["persona"],
         rng=d["rng"],
         speed=d["speed"],
         turn_rate=d["turn_rate"],
