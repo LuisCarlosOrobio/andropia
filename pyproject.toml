@@ -1,0 +1,55 @@
+[project]
+name = "andropia"
+version = "0.1.0.dev0"
+description = "A deterministic sandbox for embodied intelligence"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+
+# The simulation core has NO runtime dependencies, by design. It is pure
+# Python: no numpy, no framework, no I/O. Anything that talks to a network
+# or a GPU lives outside `andropia.sim` and is an optional extra.
+dependencies = []
+
+[project.optional-dependencies]
+# Everything that reaches the outside world. Not needed to run the sim,
+# and not needed to run its tests.
+runtime = [
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "httpx>=0.28",
+    "websockets>=14",
+]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/andropia"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle, pyflakes
+    "I",             # import sorting
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "SIM",           # simplify
+    "RET",           # return consistency
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
