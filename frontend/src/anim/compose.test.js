@@ -33,6 +33,23 @@ function rotate([x, y, z, w], [vx, vy, vz]) {
 const near = (a, b, digits = 6) =>
   a.forEach((v, i) => expect(v).toBeCloseTo(b[i], digits))
 
+/**
+ * Where the left hand ends up, given composed upper- and lower-arm rotations.
+ *
+ * Two bones of forward kinematics. Joint angles are a poor way to reason
+ * about whether an arm looks right — a rotation about the wrong axis is a
+ * perfectly large number that moves nothing. The hand is where it shows.
+ */
+function handPosition(upper, lower) {
+  const BONE = [1, 0, 0] // the left arm extends +X in normalised rest
+  const UPPER = 0.26
+  const LOWER = 0.24
+
+  const elbow = rotate(upper, BONE).map((v) => v * UPPER)
+  const forearm = rotate(quatMul(upper, lower), BONE).map((v) => v * LOWER)
+  return elbow.map((v, i) => v + forearm[i])
+}
+
 describe('quaternion basics', () => {
   it('turns a zero rotation into identity', () => {
     near(eulerToQuat([0, 0, 0]), [0, 0, 0, 1])
@@ -172,6 +189,37 @@ describe('composeLayers', () => {
 
       expect(rotate(q, [-1, 0, 0])[1], gesture).toBeGreaterThan(0.3)
     }
+  })
+
+  it('bends the elbow rather than rolling the forearm', () => {
+    // Same class of bug as the shoulder, one joint further down and easy to
+    // miss because a wrist roll does move the mesh — just not the hand. The
+    // walk drove the elbow about X, which for a down-hanging arm runs along
+    // the forearm. Measured where it shows: at the hand.
+    // Isolated from the shoulder, which dominates hand travel and hid this
+    // when measured naively: compare the hand against where it would be with
+    // the elbow contributing nothing. A wrist roll leaves that difference at
+    // essentially zero while still being a large angle.
+    const gait = walkGait()
+    let mostMoved = 0
+
+    for (let d = 0; d < gait.stride; d += gait.stride / 40) {
+      const walk = walkLayer(0, { distance: d })
+      const idle = idleLayer(0)
+
+      const withElbow = composeLayers([{ pose: idle }, { pose: walk }])
+      const withoutElbow = composeLayers([
+        { pose: idle },
+        { pose: { ...walk, leftLowerArm: [0, 0, 0] } },
+      ])
+
+      const a = handPosition(withElbow.leftUpperArm, withElbow.leftLowerArm)
+      const b = handPosition(withoutElbow.leftUpperArm, withoutElbow.leftLowerArm)
+      mostMoved = Math.max(mostMoved, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]))
+    }
+
+    // The X-axis version manages 0.017 at peak; a real bend clears 0.05.
+    expect(mostMoved).toBeGreaterThan(0.05)
   })
 
   it('skips empty and zero-weight layers', () => {

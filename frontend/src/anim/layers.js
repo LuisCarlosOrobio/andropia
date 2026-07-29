@@ -149,10 +149,16 @@ export function walkLayer(t, { phase = 0, distance = null, rig = DEFAULT_RIG } =
     // These are **deltas**. The idle layer already places the arms at rest,
     // and layers compose, so repeating the rest rotation here applied it
     // twice and swung the arms far past the body.
-    leftUpperArm: [step * 0.38, 0, 0.05],
-    rightUpperArm: [opposite * 0.38, 0, -0.05],
-    leftLowerArm: [Math.max(0, step) * 0.24, 0, 0],
-    rightLowerArm: [Math.max(0, opposite) * 0.24, 0, 0],
+    leftUpperArm: [step * 0.3, 0, 0.05],
+    rightUpperArm: [opposite * 0.3, 0, -0.05],
+    // Elbow flexion is about **Y**, not X. The arm hangs down, so X in the
+    // forearm's frame runs along the arm and a rotation about it is a wrist
+    // roll: measured at the hand, the X version moved it 0.017 while the same
+    // angle on Y moved it 0.069 forward and up. REST already bends the elbow
+    // on Y; this disagreed with it and spun the forearm instead of bending
+    // it. Signs mirror, since the two arms bend toward each other.
+    leftLowerArm: [0, -Math.max(0, step) * 0.24, 0],
+    rightLowerArm: [0, Math.max(0, opposite) * 0.24, 0],
 
     head: [bob * -0.018, 0, 0],
   }
