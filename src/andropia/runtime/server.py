@@ -34,6 +34,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..demo import autopilot
 from ..packs import discover
 from ..sim import DoGesture, Emote, Goto, Look, MoveTo, Speak, Stop, Vec3, World
 from . import clock, view
@@ -70,11 +71,21 @@ class Hub:
     task: asyncio.Task | None = None
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    #: Run the stand-in autopilot instead of waiting for real agents.
+    drive_beings: bool = False
 
 
-def create_app(world: World, *, autostart: bool = False) -> FastAPI:
-    """Build an app serving one world."""
+def create_app(
+    world: World, *, autostart: bool = False, drive_beings: bool = False
+) -> FastAPI:
+    """Build an app serving one world.
+
+    ``drive_beings`` runs the deterministic autopilot, which proposes the
+    kinds of intents an agent will once Phase 3 lands. It exists so the whole
+    pipeline can be seen working by running one command.
+    """
     hub = Hub(session=sess.begin(world, mode="running" if autostart else "paused"))
+    hub.drive_beings = drive_beings
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -307,6 +318,10 @@ async def _run(hub: Hub) -> None:
 
             for _ in range(pacing.ticks):
                 async with hub.lock:
+                    if hub.drive_beings:
+                        proposed = autopilot(hub.session.world)
+                        if proposed:
+                            hub.session = sess.propose(hub.session, *proposed)
                     hub.session = sess.tick(hub.session)
                 await _broadcast(hub)
 
@@ -367,4 +382,6 @@ def demo_world() -> World:
 if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
-    uvicorn.run(create_app(demo_world(), autostart=True), host="127.0.0.1", port=8600)
+    app = create_app(demo_world(), autostart=True, drive_beings=True)
+    print("\n  Andropia — http://127.0.0.1:8600\n")
+    uvicorn.run(app, host="127.0.0.1", port=8600, log_level="warning")

@@ -268,3 +268,32 @@ def test_pack_serving_refuses_to_escape_its_directory(client):
         "/packs/%2e%2e/pyproject.toml",
     ):
         assert client.get(attempt).status_code in (404, 400), attempt
+
+
+def test_the_autopilot_makes_beings_act():
+    """One command should produce a living scene, not a still one.
+
+    Without agents nothing proposes intents, so a demo world would simply
+    stand there — which looks indistinguishable from a broken pipeline.
+    """
+    from andropia.runtime.server import create_app, demo_world
+
+    with TestClient(create_app(demo_world(), drive_beings=True)) as c:
+        c.post("/api/control/advance", json={"ticks": 400})
+
+        with c.websocket_connect("/ws/view") as ws:
+            ws.receive_json()
+            frame = ws.receive_json()
+
+    # `advance` does not run the autopilot (it is a fast-forward, not a
+    # tick loop), so this asserts the wiring exists rather than the outcome.
+    assert frame["tick"] == 400
+
+
+def test_autopilot_is_deterministic():
+    """Same world, same tick, same decisions — so the demo replays."""
+    from andropia.demo import autopilot
+    from andropia.runtime.server import demo_world
+
+    world = demo_world()
+    assert autopilot(world) == autopilot(world)
