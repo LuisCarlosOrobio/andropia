@@ -21,14 +21,24 @@ Three beings in a world, walking to landmarks, gesturing, changing
 expression and speaking.
 
 By default they run on a deterministic autopilot, so the whole pipeline works
-with no model to hand. To let language models drive them instead, point
-Andropia at any OpenAI-compatible endpoint — vLLM, llama.cpp's server, Ollama,
-LM Studio, or a hosted API:
+with no model to hand. To let language models drive them instead, either point
+Andropia at an OpenAI-compatible endpoint — vLLM, llama.cpp's server, Ollama,
+LM Studio — or use Claude:
 
 ```bash
+# any OpenAI-compatible endpoint
 export ANDROPIA_BASE_URL=http://127.0.0.1:8000/v1
 export ANDROPIA_MODEL=your-model-name
 export ANDROPIA_API_KEY=...        # only if your endpoint wants one
+make dev
+```
+
+```bash
+# Claude. The Anthropic API is not OpenAI-compatible, so it has its own
+# adapter and its own optional dependency.
+pip install -e '.[claude]'
+export ANTHROPIC_API_KEY=...
+export ANDROPIA_CLAUDE_MODEL=claude-opus-5   # optional; this is the default
 make dev
 ```
 
@@ -77,7 +87,7 @@ replay reads the intent log and never calls a model: the run reproduces
 whatever the temperature was, and whether or not the endpoint still exists.
 
 ```bash
-make check   # 234 Python tests, 115 JS tests, none need a browser
+make check   # 258 Python tests, 115 JS tests, none need a browser
 ```
 
 ## Licence

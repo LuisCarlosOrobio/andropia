@@ -27,11 +27,9 @@ import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-import httpx
-
 from ..sim.types import EntityId, Intent, Remember, Speak, World
-from . import adapter, perception, prompt, protocol
-from .adapter import ENV_BASE_URL, ENV_KEY, ENV_MODEL, Model
+from . import perception, prompt, protocol
+from .adapter import ENV_BASE_URL, ENV_KEY, ENV_MODEL, Brain, Model
 
 #: Ticks a being must let pass before thinking again. At 20 Hz this is about a
 #: second and a half — fast enough to hold a conversation, slow enough that a
@@ -50,10 +48,16 @@ MEMORY_CHARS = 160
 
 @dataclass(frozen=True, slots=True)
 class Mind:
-    """One being's wiring. Deployment config, never part of the world."""
+    """One being's wiring. Deployment config, never part of the world.
+
+    Holds a :data:`Brain` rather than a model config, so this module — and the
+    loop below — never learns which provider answered. Anthropic's API and the
+    OpenAI-compatible one share almost nothing on the wire, and the difference
+    belongs in the provider modules, not here.
+    """
 
     entity: EntityId
-    model: Model
+    brain: Brain
 
 
 @dataclass(slots=True)
@@ -159,7 +163,6 @@ def turn_memory(intents: tuple[Intent, ...], limit: int = MEMORY_CHARS) -> str:
 
 
 async def think(
-    client: httpx.AsyncClient,
     world: World,
     mind: Mind,
 ) -> tuple[tuple[Intent, ...], str | None]:
@@ -174,7 +177,7 @@ async def think(
         return (), "not in the world"
 
     ent = world.entities[mind.entity]
-    reply = await adapter.complete(client, mind.model, prompt.messages(ent, obs))
+    reply = await mind.brain(prompt.messages(ent, obs))
     if not reply.ok:
         return (), reply.error
 
@@ -191,7 +194,6 @@ async def drive(
     snapshot: Callable[[], World],
     propose: Callable[[tuple[Intent, ...]], None],
     *,
-    client: httpx.AsyncClient | None = None,
     poll: float = 0.1,
     stop: asyncio.Event | None = None,
 ) -> None:
@@ -206,8 +208,6 @@ async def drive(
     behind on its own without stalling anyone else, which matters when one
     being is on a local 7B and another is on a hosted frontier model.
     """
-    owned = client is None
-    client = client or httpx.AsyncClient()
     stop = stop or asyncio.Event()
     running: set[asyncio.Task] = set()
 
@@ -237,7 +237,7 @@ async def drive(
 
                 cast.thinking.add(eid)
                 cast.last_thought[eid] = world.tick
-                task = asyncio.create_task(_turn(client, world, mind, cast, propose))
+                task = asyncio.create_task(_turn(world, mind, cast, propose))
                 running.add(task)
                 task.add_done_callback(running.discard)
 
@@ -245,12 +245,9 @@ async def drive(
     finally:
         for task in tuple(running):
             task.cancel()
-        if owned:
-            await client.aclose()
 
 
 async def _turn(
-    client: httpx.AsyncClient,
     world: World,
     mind: Mind,
     cast: Cast,
@@ -258,7 +255,7 @@ async def _turn(
 ) -> None:
     """One turn, with the bookkeeping that must happen however it ends."""
     try:
-        intents, error = await think(client, world, mind)
+        intents, error = await think(world, mind)
         if error:
             cast.trouble[mind.entity] = error
         else:
@@ -282,13 +279,13 @@ async def _sleep_or_stop(stop: asyncio.Event, seconds: float) -> None:
         await asyncio.wait_for(stop.wait(), timeout=seconds)
 
 
-def personas(world: World, models: dict[EntityId, Model]) -> Cast:
-    """A cast for every being in the world that has a model configured."""
+def personas(world: World, brains: dict[EntityId, Brain]) -> Cast:
+    """A cast for every being in the world that has a brain configured."""
     return Cast.of(
         *(
-            Mind(entity=eid, model=models[eid])
+            Mind(entity=eid, brain=brains[eid])
             for eid in sorted(world.entities)
-            if eid in models
+            if eid in brains
         )
     )
 
@@ -297,6 +294,7 @@ __all__ = [
     "ENV_BASE_URL",
     "ENV_KEY",
     "ENV_MODEL",
+    "Brain",
     "Cast",
     "Mind",
     "Model",

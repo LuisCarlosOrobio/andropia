@@ -35,6 +35,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..beings import adapter, claude
 from ..beings import runner as beings
 from ..demo import autopilot
 from ..packs import discover
@@ -500,41 +501,68 @@ def demo_world() -> World:
     )
 
 
-def demo_cast(world: World) -> beings.Cast | None:
+def demo_cast(world: World) -> tuple[beings.Cast | None, str, object]:
     """Wire every being in the world to a model, if one is configured.
 
-    One model for all of them by default, which is the common case: a single
-    local server, three beings, three different personas. Their behaviour
-    differs because their persona, position and memory differ — not because
-    they run on different weights.
+    One model for all of them, which is the common case: a single endpoint,
+    three beings, three different personas. Their behaviour differs because
+    their persona, position and memory differ — not because they run on
+    different weights.
 
-    Returns None when no endpoint is configured, so the demo still runs on a
-    machine with no model to hand. That is not a fallback for its own sake: the
-    autopilot is what the whole animation and rendering pipeline was built
-    against, and it stays useful for exactly that.
+    Returns the cast, a line describing it, and the client to close on
+    shutdown. The client is returned rather than closed here because it has to
+    outlive this function by the length of the run — and rather than being
+    created inside the runner, because the runner is deliberately ignorant of
+    which provider it is driving.
+
+    None when nothing is configured, so the demo still runs on a machine with
+    no model to hand. Not a fallback for its own sake: the autopilot is what the
+    whole animation and rendering pipeline was built against.
     """
-    if not os.environ.get(beings.ENV_BASE_URL):
-        return None
+    if claude.configured():
+        try:
+            import anthropic
+        except ImportError:
+            missing = (
+                "claude configured but its SDK is missing — "
+                "pip install 'andropia[claude]'"
+            )
+            return None, missing, None
 
-    model = beings.Model.from_env()
-    return beings.personas(world, dict.fromkeys(world.entities, model))
+        model = claude.Claude.from_env()
+        client = anthropic.AsyncAnthropic()
+        brain = claude.brain(client, model)
+        cast = beings.personas(world, dict.fromkeys(world.entities, brain))
+        return cast, f"{model.name} (anthropic, effort={model.effort})", client
+
+    if os.environ.get(beings.ENV_BASE_URL):
+        import httpx
+
+        model = beings.Model.from_env()
+        client = httpx.AsyncClient()
+        brain = adapter.brain(client, model)
+        cast = beings.personas(world, dict.fromkeys(world.entities, brain))
+        return cast, f"{model.name} at {model.base_url}", client
+
+    return None, "", None
 
 
 if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
     world = demo_world()
-    cast = demo_cast(world)
+    cast, describe, _client = demo_cast(world)
 
     app = create_app(world, autostart=True, drive_beings=True, cast=cast)
 
     print("\n  Andropia — http://127.0.0.1:8600")
     if cast is None:
         print("  beings: deterministic autopilot")
-        print(f"  set {beings.ENV_BASE_URL} to let language models drive them\n")
+        if describe:
+            print(f"  note:   {describe}")
+        print(f"  models: set {beings.ENV_BASE_URL}, or an ANTHROPIC_API_KEY\n")
     else:
-        model = next(iter(cast.minds.values())).model
         print(f"  beings: {', '.join(sorted(cast.minds))}")
-        print(f"  model:  {model.name} at {model.base_url}\n")
+        print(f"  model:  {describe}\n")
 
     uvicorn.run(app, host="127.0.0.1", port=8600, log_level="warning")

@@ -20,12 +20,20 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 
 import httpx
 
 from .prompt import Message
+
+#: What the runner needs from a model provider: messages in, a reply out.
+#:
+#: A callable rather than a class or a protocol, so adding a provider means
+#: writing one function that closes over its own client and settings. The
+#: runner never learns which provider answered, which is the point — Anthropic
+#: and OpenAI-compatible endpoints have almost nothing in common on the wire.
+Brain = Callable[[Sequence[Message]], Awaitable["Reply"]]
 
 #: Where configuration comes from. Public, because the entry point prints them
 #: and the README documents them — a name a user has to type is interface.
@@ -108,6 +116,15 @@ def headers(model: Model) -> dict[str, str]:
     if model.api_key:
         out["Authorization"] = f"Bearer {model.api_key}"
     return out
+
+
+def brain(client: httpx.AsyncClient, model: Model) -> Brain:
+    """A :data:`Brain` bound to one OpenAI-compatible endpoint."""
+
+    async def think(messages: Sequence[Message]) -> Reply:
+        return await complete(client, model, messages)
+
+    return think
 
 
 async def complete(

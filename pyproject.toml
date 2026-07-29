@@ -21,6 +21,13 @@ runtime = [
     "httpx>=0.28",
     "websockets>=14",
 ]
+# Beings driven by the Anthropic Messages API. Optional because that API is
+# not OpenAI-compatible and needs its own client; a user pointing Andropia at a
+# local vLLM or llama.cpp server never installs this.
+claude = [
+    "anthropic>=0.116",
+]
+
 dev = [
     "pytest-asyncio>=0.25",
     "pytest>=8.3",

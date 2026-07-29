@@ -48,6 +48,15 @@ def transport(handler):
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
+def mind(eid, client, model=None):
+    """A Mind wired to an OpenAI-compatible endpoint.
+
+    Minds hold a brain rather than a model config, so the runner never learns
+    which provider answered — the provider modules own that difference.
+    """
+    return Mind(eid, adapter.brain(client, model or MODEL))
+
+
 def completion(text):
     def handler(request):
         return httpx.Response(200, json={"choices": [{"message": {"content": text}}]})
@@ -312,7 +321,7 @@ def test_streamed_chunks_feed_the_protocol_parser():
 
 async def test_a_turn_produces_intents_and_a_memory():
     async with transport(completion("[happy]Hello, bob! [motion:wave]")) as client:
-        intents, error = await runner.think(client, a_world(), Mind("ava", MODEL))
+        intents, error = await runner.think(a_world(), mind("ava", client))
 
     assert error is None
     assert any(isinstance(i, Speak) and "Hello, bob!" in i.text for i in intents)
@@ -325,7 +334,7 @@ async def test_a_failed_turn_yields_no_intents():
         return httpx.Response(503, text="down")
 
     async with transport(handler) as client:
-        intents, error = await runner.think(client, a_world(), Mind("ava", MODEL))
+        intents, error = await runner.think(a_world(), mind("ava", client))
 
     assert intents == ()
     assert error is not None
@@ -333,7 +342,7 @@ async def test_a_failed_turn_yields_no_intents():
 
 async def test_a_turn_for_a_missing_being_is_reported_not_raised():
     async with transport(completion("hi")) as client:
-        intents, error = await runner.think(client, a_world(), Mind("ghost", MODEL))
+        intents, error = await runner.think(a_world(), mind("ghost", client))
     assert intents == () and error is not None
 
 
@@ -345,7 +354,7 @@ async def test_the_prompt_actually_sent_contains_the_situation():
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     async with transport(handler) as client:
-        await runner.think(client, a_world(), Mind("ava", MODEL))
+        await runner.think(a_world(), mind("ava", client))
 
     contents = [m["content"] for m in seen["body"]["messages"]]
     assert any("You are curious." in c for c in contents)  # persona
@@ -361,17 +370,10 @@ async def test_drive_proposes_intents_and_respects_shutdown():
     proposed: list[tuple] = []
     stop = asyncio.Event()
 
-    cast = Cast.of(Mind("ava", MODEL))
     async with transport(completion("[happy]Hi.")) as client:
+        cast = Cast.of(mind("ava", client))
         task = asyncio.create_task(
-            runner.drive(
-                cast,
-                lambda: world,
-                proposed.append,
-                client=client,
-                poll=0.01,
-                stop=stop,
-            )
+            runner.drive(cast, lambda: world, proposed.append, poll=0.01, stop=stop)
         )
         for _ in range(200):
             await asyncio.sleep(0.005)
@@ -396,12 +398,12 @@ async def test_a_being_has_only_one_request_in_flight():
         await release.wait()
         return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
 
-    cast = Cast.of(Mind("ava", MODEL))
     stop = asyncio.Event()
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        cast = Cast.of(mind("ava", client))
         task = asyncio.create_task(
             runner.drive(
-                cast, lambda: world, lambda _: None, client=client, poll=0.005, stop=stop
+                cast, lambda: world, lambda _: None, poll=0.005, stop=stop
             )
         )
         await asyncio.sleep(0.1)  # many poll cycles
@@ -423,14 +425,14 @@ async def test_one_beings_broken_endpoint_does_not_stop_the_others():
             return httpx.Response(500, text="no")
         return httpx.Response(200, json={"choices": [{"message": {"content": "fine"}}]})
 
-    cast = Cast.of(
-        Mind("ava", Model(name="broken", base_url=MODEL.base_url)),
-        Mind("bob", Model(name="working", base_url=MODEL.base_url)),
-    )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        cast = Cast.of(
+            mind("ava", client, Model(name="broken", base_url=MODEL.base_url)),
+            mind("bob", client, Model(name="working", base_url=MODEL.base_url)),
+        )
         task = asyncio.create_task(
             runner.drive(
-                cast, lambda: world, proposed.append, client=client, poll=0.01, stop=stop
+                cast, lambda: world, proposed.append, poll=0.01, stop=stop
             )
         )
         for _ in range(200):
@@ -467,12 +469,12 @@ async def test_only_one_being_thinks_at_a_time():
         concurrent -= 1
         return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
 
-    cast = Cast.of(Mind("ava", MODEL), Mind("bob", MODEL))
     stop = asyncio.Event()
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        cast = Cast.of(mind("ava", client), mind("bob", client))
         task = asyncio.create_task(
             runner.drive(
-                cast, lambda: world, lambda _: None, client=client, poll=0.005, stop=stop
+                cast, lambda: world, lambda _: None, poll=0.005, stop=stop
             )
         )
         await asyncio.sleep(0.1)  # many poll cycles, both beings due
@@ -529,6 +531,6 @@ async def test_odd_replies_never_raise(reply):
     """Whatever a model does, a turn ends in intents or an error — never a
     traceback that stops the world."""
     async with transport(completion(reply)) as client:
-        intents, error = await runner.think(client, a_world(), Mind("ava", MODEL))
+        intents, error = await runner.think(a_world(), mind("ava", client))
     assert error is None
     assert isinstance(intents, tuple)
