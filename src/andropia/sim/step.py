@@ -31,6 +31,7 @@ from .types import (
     Idle,
     Intent,
     Look,
+    MoveTo,
     Speak,
     Speech,
     Stop,
@@ -101,6 +102,9 @@ def _apply_intents(world: World, intents: tuple[Intent, ...]) -> World:
                 mark = world.landmarks.get(it.target)
                 if mark is not None:
                     entities[ent.id] = replace(ent, action=Walk(target=mark.pos))
+
+            case MoveTo():
+                entities[ent.id] = replace(ent, action=Walk(target=it.pos))
 
             case DoGesture():
                 entities[ent.id] = replace(ent, action=Gesture(motion=it.motion))

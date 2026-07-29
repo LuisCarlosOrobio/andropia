@@ -47,3 +47,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# --- Frontend build output ---
+frontend/dist/

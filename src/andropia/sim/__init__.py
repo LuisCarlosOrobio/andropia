@@ -22,6 +22,7 @@ from .types import (
     Landmark,
     Look,
     Memory,
+    MoveTo,
     Speak,
     Speech,
     Stop,
@@ -33,6 +34,6 @@ from .vec import Vec3
 
 __all__ = [
     "DoGesture", "Emote", "Entity", "Gesture", "Goto", "Idle", "Intent",
-    "Landmark", "Look", "Memory", "Speak", "Speech", "Stop", "Utterance",
+    "Landmark", "Look", "Memory", "MoveTo", "Speak", "Speech", "Stop", "Utterance",
     "Vec3", "Walk", "World", "run", "step",
 ]

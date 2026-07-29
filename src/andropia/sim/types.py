@@ -163,6 +163,21 @@ class Goto:
 
 
 @dataclass(frozen=True, slots=True)
+class MoveTo:
+    """Walk to a bare position.
+
+    Distinct from :class:`Goto`, which names a landmark. Agents should
+    normally use ``Goto`` — a language model reasons about "the pond", not
+    about coordinates — but a human clicking the ground has a point and no
+    name for it, and inventing a landmark for every click would be worse.
+    """
+
+    entity: EntityId
+    pos: Vec3
+    kind: Literal["moveto"] = "moveto"
+
+
+@dataclass(frozen=True, slots=True)
 class DoGesture:
     entity: EntityId
     motion: str
@@ -189,7 +204,7 @@ class Stop:
     kind: Literal["stop"] = "stop"
 
 
-Intent: TypeAlias = Speak | Goto | DoGesture | Emote | Look | Stop
+Intent: TypeAlias = Speak | Goto | MoveTo | DoGesture | Emote | Look | Stop
 
 
 # --------------------------------------------------------------------------

@@ -26,6 +26,7 @@ from .types import (
     Landmark,
     Look,
     Memory,
+    MoveTo,
     Speak,
     Speech,
     Stop,
@@ -41,6 +42,7 @@ _ACTIONS = {"idle": Idle, "walk": Walk, "gesture": Gesture}
 _INTENTS = {
     "speak": Speak,
     "goto": Goto,
+    "moveto": MoveTo,
     "gesture": DoGesture,
     "emote": Emote,
     "look": Look,
@@ -183,4 +185,8 @@ def _dec_utterance(d: dict[str, Any]) -> Utterance:
 def _dec_intent(d: dict[str, Any]) -> Intent:
     cls = _INTENTS[d["kind"]]
     payload = {k: v for k, v in d.items() if k != "kind"}
+    # Vectors round-trip as [x, y, z]; restore the type so a replayed
+    # MoveTo behaves identically to the one that was originally proposed.
+    if "pos" in payload:
+        payload["pos"] = _vec(payload["pos"])
     return cls(**payload)
