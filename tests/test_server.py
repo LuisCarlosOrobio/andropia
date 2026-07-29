@@ -297,3 +297,42 @@ def test_autopilot_is_deterministic():
 
     world = demo_world()
     assert autopilot(world) == autopilot(world)
+
+
+def test_a_coordinate_sent_as_a_landmark_name_is_rejected(client):
+    """Regression: this crashed the tick loop.
+
+    The frontend sent `goto` with a coordinate array where a landmark name
+    belongs. Dataclasses do not enforce annotations, so it constructed
+    happily and only failed inside the simulation as
+    `TypeError: cannot use 'list' as a dict key` — a message that tells you
+    nothing about where the wrong shape came from.
+    """
+    r = client.post(
+        "/api/intent",
+        json={"kind": "goto", "entity": "ava", "target": [1.0, 0.0, 2.0]},
+    )
+
+    assert r.status_code == 400
+    assert "moveto" in r.json()["detail"]  # points at the right intent
+
+
+def test_a_malformed_intent_does_not_kill_the_view_socket(client):
+    """A viewer sending nonsense must not tear down its own connection.
+
+    A socket that dies on one bad payload is indistinguishable from a paused
+    world, and the client cannot tell which happened.
+    """
+    with client.websocket_connect("/ws/view") as ws:
+        ws.receive_json()
+        ws.receive_json()
+
+        ws.send_json(
+            {"type": "intent", "intent": {"kind": "goto", "entity": "ava", "target": [1, 2, 3]}}
+        )
+        ws.send_json({"type": "intent", "intent": {"kind": "nonsense"}})
+        ws.send_json({"type": "intent"})
+
+        # Still alive and still advancing.
+        ws.send_json({"type": "step"})
+        assert ws.receive_json()["tick"] == 1

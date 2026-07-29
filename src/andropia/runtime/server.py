@@ -264,6 +264,24 @@ def _parse_intent(body: dict[str, Any]):
         except (TypeError, ValueError) as exc:
             raise HTTPException(400, "pos must be [x, y, z]") from exc
 
+    # Names must be strings. Dataclasses do not enforce their annotations, so
+    # a coordinate array sent as a landmark name would construct happily here
+    # and only fail deep in the simulation, where the message is useless.
+    # The boundary is where a wrong shape should be caught.
+    for key in ("entity", "target", "motion", "emotion"):
+        value = payload.get(key)
+        if value is not None and not isinstance(value, str):
+            raise HTTPException(
+                400,
+                f"{key} must be a string, got {type(value).__name__}"
+                + (
+                    " — to send a being to a bare position use "
+                    "{'kind': 'moveto', 'pos': [x, y, z]}"
+                    if key == "target"
+                    else ""
+                ),
+            )
+
     try:
         return cls(**payload)
     except TypeError as exc:
@@ -271,11 +289,21 @@ def _parse_intent(body: dict[str, Any]):
 
 
 async def _handle(hub: Hub, msg: dict[str, Any]) -> None:
-    """Control messages arriving on a viewer's socket."""
+    """Control messages arriving on a viewer's socket.
+
+    Nothing a viewer sends may tear down its own connection. A malformed
+    message is logged and dropped, because the alternative — a socket that
+    dies on one bad payload — is indistinguishable from a paused world, and
+    the client has no way to tell which happened.
+    """
     match msg.get("type"):
         case "intent":
+            try:
+                parsed = _parse_intent(msg.get("intent") or {})
+            except HTTPException as exc:
+                print(f"[andropia] ignoring malformed intent: {exc.detail}")
+                return
             async with hub.lock:
-                parsed = _parse_intent(msg["intent"])
                 hub.session = sess.propose(hub.session, parsed)
         case "pause":
             hub.session = sess.pause(hub.session)

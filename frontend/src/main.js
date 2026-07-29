@@ -93,11 +93,15 @@ for (const b of document.querySelectorAll('.spd')) {
 }
 
 // Click a being, then a spot on the ground, to send it there.
+//
+// `moveto`, not `goto`: goto names a landmark, which is what an agent uses
+// because a language model reasons about "the pond" rather than about
+// coordinates. A human clicking the ground has a point and no name for it.
 stage.onPick = (entityId, point) => {
   if (!entityId || !point) return
   net.send({
     type: 'intent',
-    intent: { kind: 'goto', entity: entityId, target: point },
+    intent: { kind: 'moveto', entity: entityId, pos: point },
   })
 }
 
