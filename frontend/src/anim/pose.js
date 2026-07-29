@@ -201,7 +201,19 @@ export const IDENTITY_QUAT = [0, 0, 0, 1]
  * multiplied rather than summed, so a limb driven by three layers at once
  * ends up where those three rotations actually put it.
  *
- * Layers apply in order, each one rotating the result so far.
+ * Each layer rotates the result so far **in the parent bone's frame** — the
+ * new rotation multiplies on the left, so it applies after everything
+ * beneath it. That ordering is the whole ballgame for an arm.
+ *
+ * REST rolls the upper arm down out of the T-pose by 1.32 rad about Z. A walk
+ * swing is a pitch about X, and it means "swing forward and back about the
+ * shoulder" — an axis in the shoulder's frame, not in the frame of the
+ * already-rolled arm. Multiplying on the right applies the pitch first, so
+ * the roll then drags its axis round with it: X maps to nearly −Y, and a
+ * 0.38 rad forward swing turns into a twist of the upper arm about its own
+ * length. Measured at the hand, that order gave 0.037 of forward travel
+ * against 0.71 for this one — which is to say the arms were not swinging,
+ * they were rotating in their sockets.
  */
 export function composeLayers(layers) {
   const out = {}
@@ -213,7 +225,7 @@ export function composeLayers(layers) {
       const e = pose[bone]
       const scaled = weight === 1 ? e : [e[0] * weight, e[1] * weight, e[2] * weight]
       const q = eulerToQuat(scaled)
-      out[bone] = bone in out ? quatMul(out[bone], q) : q
+      out[bone] = bone in out ? quatMul(q, out[bone]) : q
     }
   }
 

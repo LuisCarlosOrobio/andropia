@@ -27,7 +27,7 @@ export const wave = {
     {
       t: 0.2,
       bones: {
-        rightUpperArm: [0, 0, -1.15],
+        rightUpperArm: [0, 0, -2.0],
         rightLowerArm: [0, -0.5, -0.45],
         rightShoulder: [0, 0, -0.12],
       },
@@ -35,7 +35,7 @@ export const wave = {
     {
       t: 0.42,
       bones: {
-        rightUpperArm: [0, 0, -1.2],
+        rightUpperArm: [0, 0, -2.05],
         rightLowerArm: [0, -0.5, -0.95],
         rightShoulder: [0, 0, -0.12],
       },
@@ -43,7 +43,7 @@ export const wave = {
     {
       t: 0.62,
       bones: {
-        rightUpperArm: [0, 0, -1.15],
+        rightUpperArm: [0, 0, -2.0],
         rightLowerArm: [0, -0.5, -0.35],
         rightShoulder: [0, 0, -0.12],
       },
@@ -51,7 +51,7 @@ export const wave = {
     {
       t: 0.8,
       bones: {
-        rightUpperArm: [0, 0, -1.2],
+        rightUpperArm: [0, 0, -2.05],
         rightLowerArm: [0, -0.5, -0.85],
         rightShoulder: [0, 0, -0.1],
       },
@@ -181,8 +181,8 @@ export const cheer = {
     {
       t: 0.22,
       bones: {
-        leftUpperArm: [0, 0, 1.05],
-        rightUpperArm: [0, 0, -1.05],
+        leftUpperArm: [0, 0, 2.3],
+        rightUpperArm: [0, 0, -2.3],
         leftLowerArm: [0, -0.3, -0.2],
         rightLowerArm: [0, 0.3, 0.2],
         spine: [-0.08, 0, 0],
@@ -192,8 +192,8 @@ export const cheer = {
     {
       t: 0.45,
       bones: {
-        leftUpperArm: [0, 0, 1.2],
-        rightUpperArm: [0, 0, -1.2],
+        leftUpperArm: [0, 0, 2.6],
+        rightUpperArm: [0, 0, -2.6],
         leftLowerArm: [0, -0.2, -0.1],
         rightLowerArm: [0, 0.2, 0.1],
         spine: [-0.1, 0, 0],
@@ -203,8 +203,8 @@ export const cheer = {
     {
       t: 0.7,
       bones: {
-        leftUpperArm: [0, 0, 1.05],
-        rightUpperArm: [0, 0, -1.05],
+        leftUpperArm: [0, 0, 2.3],
+        rightUpperArm: [0, 0, -2.3],
         spine: [-0.06, 0, 0],
         head: [-0.12, 0, 0],
       },

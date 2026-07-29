@@ -16,7 +16,7 @@ import {
   quatMul,
   quatNormalize,
 } from './pose.js'
-import { idleLayer, gestureLayer, walkLayer } from './layers.js'
+import { idleLayer, gestureLayer, walkGait, walkLayer } from './layers.js'
 
 /** Rotate a vector by a quaternion — how we check where a limb ends up. */
 function rotate([x, y, z, w], [vx, vy, vz]) {
@@ -116,6 +116,61 @@ describe('composeLayers', () => {
         // Never folded up through the torso.
         expect(dir[1]).toBeLessThan(0.98)
       }
+    }
+  })
+
+  it('applies later layers in the parent frame', () => {
+    // Pinning the order, because both directions look equally plausible in
+    // the source and only one of them swings an arm.
+    const rest = { leftUpperArm: [0, 0, Math.PI / 2] }
+    const swing = { leftUpperArm: [Math.PI / 2, 0, 0] }
+
+    const composed = composeLayers([{ pose: rest }, { pose: swing }]).leftUpperArm
+    const expected = quatNormalize(
+      quatMul(eulerToQuat(swing.leftUpperArm), eulerToQuat(rest.leftUpperArm))
+    )
+    near(composed, expected, 9)
+  })
+
+  it('swings the arm forward and back rather than in its socket', () => {
+    // The order bug, measured where it shows. REST rolls the upper arm down
+    // out of the T-pose by 1.32 rad about Z, and the walk's swing is a pitch
+    // about X meaning "about the shoulder". Composed the wrong way round the
+    // roll drags the pitch axis with it — X becomes nearly −Y — and the swing
+    // turns into the arm rotating inside its own socket. Forward travel at
+    // the hand: 0.037 wrong, 0.71 right.
+    const gait = walkGait()
+    let lowest = Infinity
+    let highest = -Infinity
+
+    for (let d = 0; d < gait.stride; d += gait.stride / 60) {
+      const q = composeLayers([
+        { pose: idleLayer(0) },
+        { pose: walkLayer(0, { distance: d }) },
+      ]).leftUpperArm
+      // The left upper arm bone points +X at rest, so its Z component is how
+      // far forward the arm reaches.
+      const forward = rotate(q, [1, 0, 0])[2]
+      lowest = Math.min(lowest, forward)
+      highest = Math.max(highest, forward)
+    }
+
+    expect(highest - lowest).toBeGreaterThan(0.4)
+  })
+
+  it('raises the arm for gestures that mean raised', () => {
+    // A delta that merely cancels REST's 1.32 roll puts the arm back at
+    // T-pose — straight out sideways. Both wave and cheer shipped that way:
+    // the shapes were right and the magnitudes were not, which is the
+    // characteristic failure of authoring angles by reasoning about a rig
+    // instead of looking at it.
+    for (const gesture of ['wave', 'cheer']) {
+      const q = composeLayers([
+        { pose: idleLayer(0) },
+        { pose: gestureLayer(gesture, 0.5) },
+      ]).rightUpperArm
+
+      expect(rotate(q, [-1, 0, 0])[1], gesture).toBeGreaterThan(0.3)
     }
   })
 

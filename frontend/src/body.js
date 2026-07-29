@@ -123,15 +123,21 @@ export class Body {
     this.clock += dt
 
     const [x, y, z] = state.position
+    if (state.yaw !== null) this._lastYaw = state.yaw
+
     if (this._lastPos) {
       const dx = x - this._lastPos[0]
       const dz = z - this._lastPos[2]
-      this.distance += Math.hypot(dx, dz)
+      // Travel along the being's own facing, not total path length. The gait
+      // plants feet fore and aft, so only forward progress may advance it —
+      // measuring the raw path meant a being shoved sideways out of a crowd
+      // had its legs striding to cover ground it never walked. Signed, so a
+      // being pushed backward steps backward rather than marching on.
+      this.distance += dx * Math.sin(this._lastYaw) + dz * Math.cos(this._lastYaw)
     }
     this._lastPos = state.position
 
     this.group.position.set(x, y, z)
-    if (state.yaw !== null) this._lastYaw = state.yaw
     this.group.rotation.y = this._lastYaw
 
     this._applyLocomotion(state.locomotion)
