@@ -20,7 +20,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { applyExpressions, applyGaze, applyPose } from './anim/apply.js'
 import { composeLayers } from './anim/pose.js'
-import { blinkWeight, layersFor, visemeWeights } from './anim/layers.js'
+import { DEFAULT_RIG, blinkWeight, layersFor, visemeWeights, walkHipOffset } from './anim/layers.js'
 
 // Crossfade time between locomotion states. Short enough to feel responsive,
 // long enough that a being does not snap between standing and walking.
@@ -90,6 +90,14 @@ export class Body {
     // stride rate happened to be hardcoded.
     this.distance = 0
     this._lastPos = null
+
+    // Real leg proportions, so the IK solves against this body rather than an
+    // assumed one. A short avatar and a tall one take the same stride in
+    // metres but need very different joint angles to do it.
+    this.rig = measureRig(vrm)
+    // Eased 0..1 walk weight. The pelvis sits lower while walking, so
+    // switching the layer on in a single frame is a visible hop.
+    this.walkBlend = 0
     // Per-body offset, so a crowd does not breathe or blink in unison —
     // which is uncanny in a way that is hard to name and impossible to miss.
     this.phase = hashPhase(beingId)
@@ -130,11 +138,31 @@ export class Body {
     this._applyGesture(state.gesture)
 
     if (this.vrm) {
+      // Ease toward walking or standing rather than switching. Exponential
+      // smoothing, framerate-independent, and the same shape the simulation
+      // uses for steering.
+      // Only the procedural walk fades here. A pack that ships a walk clip
+      // drives its own legs, and the mixer already crossfades it.
+      const walking =
+        state.locomotion?.state === 'walk' && state.locomotion?.procedural
+      const target = walking ? 1 : 0
+      this.walkBlend += (target - this.walkBlend) * Math.min(1, dt / LOCOMOTION_FADE)
+
       // Procedural: breathing, sway, blink, gaze and any gesture with no
       // clip. Composed as data, applied once.
-      const options = { phase: this.phase, distance: this.distance }
+      const options = {
+        phase: this.phase,
+        distance: this.distance,
+        rig: this.rig.bones,
+        walkWeight: this.walkBlend,
+      }
       const pose = composeLayers(layersFor(state, this.clock, options))
-      applyPose(this.vrm, pose)
+
+      // The pelvis drops as the legs reach, faded by the same weight as the
+      // pose so the body never pops between standing and walking height.
+      const drop =
+        walkHipOffset(this.distance, this.phase, this.rig.bones) * this.walkBlend
+      applyPose(this.vrm, pose, this.rig.hipY + drop)
 
       applyExpressions(this.vrm, {
         ...state.expressions,
@@ -228,6 +256,46 @@ export class Body {
   }
 }
 
+
+/**
+ * Measure a VRM's leg proportions from its own rest pose.
+ *
+ * Normalised humanoid space guarantees every conformant avatar uses the same
+ * bone *names* in the same rest *orientation* — it says nothing about their
+ * lengths. A 1.4 m character and a 1.9 m one both expose `leftLowerLeg`, and
+ * an IK solver handed the wrong limb length puts the foot in the wrong place
+ * by exactly the difference.
+ *
+ * So the numbers come from the model. In the normalised rig each bone's rest
+ * translation is its offset from its parent, which makes the thigh and shin
+ * lengths a subtraction away, and the hips' own rest height the ground truth
+ * for where the pelvis stands.
+ *
+ * Falls back to human-average proportions for a non-VRM or a rig missing a
+ * leg, because a body that animates slightly wrong beats one that throws
+ * during a frame.
+ */
+function measureRig(vrm) {
+  const fallback = { bones: DEFAULT_RIG, hipY: DEFAULT_RIG.upperLeg + DEFAULT_RIG.lowerLeg }
+  if (!vrm?.humanoid) return fallback
+
+  const rest = vrm.humanoid.normalizedRestPose
+  const upperLeg = boneLength(rest.leftLowerLeg)
+  const lowerLeg = boneLength(rest.leftFoot)
+  const hipY = rest.hips?.position?.[1] ?? null
+
+  // A zero-length bone means the rig did not declare the joint offset we are
+  // reading, and dividing the gait across it would produce a leg of length
+  // zero. Guessing is strictly better than that.
+  if (upperLeg <= 0 || lowerLeg <= 0 || hipY === null) return fallback
+
+  return { bones: { upperLeg, lowerLeg }, hipY }
+}
+
+function boneLength(node) {
+  const p = node?.position
+  return p ? Math.hypot(p[0], p[1], p[2]) : 0
+}
 
 /**
  * A stable per-being phase offset in [0, 2π).

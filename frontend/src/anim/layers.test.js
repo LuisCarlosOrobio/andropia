@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { footTargets } from './gait.js'
 import { GESTURES, GESTURE_NAMES } from './gestures.js'
 import {
   blinkWeight,
@@ -16,8 +17,9 @@ import {
   layersFor,
   sampleKeys,
   visemeWeights,
-  STRIDE_LENGTH,
   WALK_RATE,
+  walkGait,
+  walkHipOffset,
   walkLayer,
 } from './layers.js'
 import { REST, addPose, blendLayers, easeBack, lerpPose, scalePose } from './pose.js'
@@ -371,9 +373,22 @@ describe('walk regressions', () => {
   })
 
   it('swings the legs in opposition', () => {
-    for (const t of [0.1, 0.4, 0.9, 1.6]) {
-      const pose = walkLayer(t)
-      expect(Math.sign(pose.leftUpperLeg[0])).toBe(-Math.sign(pose.rightUpperLeg[0]))
+    // Asserted on the FEET, not the thigh angles. Under IK both thighs pass
+    // through vertical at the moment the feet cross, so their angles briefly
+    // share a sign — which is what a real walk does, and what the previous
+    // sine-driven legs could never do.
+    for (const d of [0.1, 0.4, 0.9, 1.6]) {
+      const { left, right } = footTargets(d)
+      expect(Math.sign(left.pos[2])).toBe(-Math.sign(right.pos[2]))
+    }
+  })
+
+  it('keeps exactly one foot swinging at a time', () => {
+    // Both planted is a walk's double-support phase and is fine. Neither
+    // planted is a run, and this gait does not have one.
+    for (let d = 0; d < 6; d += 0.017) {
+      const { left, right } = footTargets(d)
+      expect(left.planted || right.planted).toBe(true)
     }
   })
 
@@ -393,10 +408,28 @@ describe('walk regressions', () => {
   })
 
   it('bobs at twice the stride rate', () => {
-    // The body rises on each foot, not once per full cycle.
-    const period = (2 * Math.PI) / WALK_RATE
-    expect(walkLayer(0).hips[2]).toBeCloseTo(walkLayer(period).hips[2], 5)
-    expect(walkLayer(0).hips[2]).toBeCloseTo(walkLayer(period / 2).hips[2], 5)
+    // The body rises on each foot, not once per full cycle. The bob used to
+    // be a cosine on the hips; it is now the pelvis drop falling out of the
+    // leg constraint, so this asserts on that instead — same claim, real
+    // cause. A half-stride shift lands on the opposite foot at the same
+    // point in ITS stance, so the height must match.
+    const { stride } = walkGait()
+    expect(walkHipOffset(0)).toBeCloseTo(walkHipOffset(stride), 9)
+    expect(walkHipOffset(0)).toBeCloseTo(walkHipOffset(stride / 2), 9)
+  })
+
+  it('lowers the pelvis most when the legs are furthest apart', () => {
+    // Never above standing height, and deepest at the stride extremes.
+    let deepest = 0
+    let shallowest = -Infinity
+    const { stride } = walkGait()
+    for (let d = 0; d < stride; d += stride / 400) {
+      const y = walkHipOffset(d)
+      expect(y).toBeLessThanOrEqual(0)
+      deepest = Math.min(deepest, y)
+      shallowest = Math.max(shallowest, y)
+    }
+    expect(deepest).toBeLessThan(shallowest - 0.02)
   })
 })
 
@@ -411,7 +444,7 @@ describe('foot planting', () => {
 
   it('completes one cycle per stride length', () => {
     const a = walkLayer(0, { distance: 0 })
-    const b = walkLayer(0, { distance: STRIDE_LENGTH })
+    const b = walkLayer(0, { distance: walkGait().stride })
     expect(a.leftUpperLeg[0]).toBeCloseTo(b.leftUpperLeg[0], 5)
   })
 

@@ -17,7 +17,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { applyExpressions, applyPose } from './anim/apply.js'
 import { GESTURES } from './anim/gestures.js'
-import { blinkWeight, idleLayer, sampleKeys, walkLayer } from './anim/layers.js'
+import { blinkWeight, idleLayer, sampleKeys, walkHipOffset, walkLayer } from './anim/layers.js'
 import { arc, clamp01, composeLayers, scalePose } from './anim/pose.js'
 import { loadBody } from './body.js'
 import { fetchPacks } from './packs.js'
@@ -341,15 +341,26 @@ function frame() {
   if (body?.vrm) {
     // The same pure functions the renderer uses. No second implementation
     // to drift out of step with the real thing.
+    // The walk solves against this body's measured legs, and its pelvis has
+    // to drop with them — hold the hips at standing height while the legs
+    // reach and the feet sink through the floor.
+    const options = { rig: body.rig.bones }
+    const walkDistance = (clock * 1.1) % 1000
+
     const layers = []
     if (state.idle) layers.push({ pose: idleLayer(clock) })
-    if (state.walk) layers.push({ pose: walkLayer(clock) })
+    if (state.walk) {
+      layers.push({ pose: walkLayer(clock, { ...options, distance: walkDistance }) })
+    }
 
     const sampled = sampleKeys(currentGesture().keys, clamp01(state.phase))
     const fade = Math.min(1, arc(state.phase) * 2.2)
     layers.push({ pose: scalePose(sampled, fade) })
 
-    applyPose(body.vrm, composeLayers(layers))
+    const hipY = state.walk
+      ? body.rig.hipY + walkHipOffset(walkDistance, 0, body.rig.bones)
+      : body.rig.hipY
+    applyPose(body.vrm, composeLayers(layers), hipY)
     applyExpressions(body.vrm, { blink: blinkWeight(clock) })
     body.vrm.update(dt)
   }

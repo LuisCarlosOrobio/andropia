@@ -27,7 +27,7 @@
  * ending releases the limb rather than leaving it wherever the last frame
  * put it.
  */
-export function applyPose(vrm, quats) {
+export function applyPose(vrm, quats, hipY = null) {
   const humanoid = vrm?.humanoid
   if (!humanoid) return
 
@@ -41,6 +41,20 @@ export function applyPose(vrm, quats) {
     } else {
       node.quaternion.identity()
     }
+  }
+
+  // The pelvis is the one bone that translates. A walking body is shorter
+  // than a standing one, and without this the legs get asked to reach further
+  // than they can, the solver clamps, and the feet start sliding again — the
+  // exact problem the IK exists to remove.
+  //
+  // Hips only: VRM reserves translation for that bone, and moving any other
+  // stretches the mesh rather than the body. An absolute height rather than a
+  // delta, because the caller measured the rig and this file has not — it is
+  // a mutation boundary, and keeping the arithmetic upstream keeps it one.
+  if (hipY !== null) {
+    const hips = humanoid.getNormalizedBoneNode('hips')
+    if (hips) hips.position.y = hipY
   }
 }
 

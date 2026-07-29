@@ -16,7 +16,9 @@
  * animate identically, and a replay looks like the original.
  */
 
+import { footTargets, gaitFor, pelvisDrop } from './gait.js'
 import { GESTURES } from './gestures.js'
+import { solveLeg } from './ik.js'
 import { REST, arc, clamp01, easeInOut, lerpPose, scalePose } from './pose.js'
 
 // -- idle ------------------------------------------------------------------
@@ -61,20 +63,35 @@ export function idleLayer(t, { phase = 0, intensity = 1 } = {}) {
 // -- locomotion ------------------------------------------------------------
 
 /**
- * Metres of ground covered per full walk cycle — two steps, so roughly a
- * 0.75 m stride. Driving the cycle by DISTANCE rather than by time is what
- * keeps the feet planted: a being moving slowly takes slow steps and a
- * being hurrying takes quick ones, both landing at the same points on the
- * ground, with no rate constant to keep in sync with anything.
- */
-export const STRIDE_LENGTH = 1.5
-
-/**
  * Fallback rate, in radians per second, used only when no distance is
- * supplied. Present so the layer stays callable from a tuner or a test
- * that has no notion of a being moving through a world.
+ * supplied. Present so the layer stays callable from a tuner or a test that
+ * has no notion of a being moving through a world.
  */
 export const WALK_RATE = 5.2
+
+/**
+ * Leg proportions to solve against when nobody has measured the real rig.
+ *
+ * Roughly a 1.6 m humanoid. A body should measure its own bones and pass
+ * them in — these exist so the layer is callable from a test or a tuner, not
+ * because guessing is good enough.
+ */
+export const DEFAULT_RIG = { upperLeg: 0.42, lowerLeg: 0.42 }
+
+/**
+ * Standing hip height as a fraction of full leg length.
+ *
+ * Never 1: a locked knee reads as a mannequin and leaves the solver no room
+ * to absorb error. But not much below it either — this fraction *is* the
+ * stance knee bend, held for the whole time the foot is down, and at 0.97 the
+ * knee sits at a permanent 28° and the character creeps along in a crouch.
+ * 0.99 puts it near 16°, which is inside the range a person's stance knee
+ * actually holds.
+ *
+ * It also stays above the solver's own extension clamp, so that clamp remains
+ * a safety net for impossible targets rather than the thing setting the pose.
+ */
+const STAND = 0.99
 
 /**
  * A walk, for bodies with no walk clip.
@@ -83,53 +100,45 @@ export const WALK_RATE = 5.2
  * for VRM it is the only option, because essentially every VRM ships with
  * zero animations.
  *
- * The first version deliberately left the legs alone, reasoning that
- * procedural locomotion without IK looks wrong. That was the wrong call: a
- * being gliding across the ground reads as *broken*, while an imperfect
- * walk reads as stylised. Doing something beats doing nothing.
+ * The legs are inverse kinematics: `gait.js` decides where the feet belong
+ * and `ik.js` works out the joint angles that put them there. Everything else
+ * — torso, arms, head — is still forward kinematics driven by the cycle, and
+ * should be, since no constraint governs where an elbow "should" be.
  *
- * Still not IK — no solver pins a foot to a spot and holds it there. But
- * the cycle advances with distance travelled rather than with the clock,
- * which removes the cause of most visible skating: the feet now complete a
- * stride per STRIDE_LENGTH of ground regardless of how fast the being is
- * moving. What remains is the residual from the foot arc not exactly
- * matching the ground plane, which is a much smaller error and needs real
- * IK to remove entirely.
+ * Two earlier versions are worth remembering, because each fixed a real
+ * problem and neither was enough. The first drove the joints from sines,
+ * which glides whenever ground speed disagrees with the animation rate. The
+ * second drove the cycle from distance travelled, which fixed the gross
+ * skating but still left the feet tracing an arc that only approximates the
+ * ground. Only pinning the foot as an input removes the last of it.
  */
-export function walkLayer(t, { phase = 0, distance = null } = {}) {
-  // Distance-driven when we know how far the being has walked, which is the
-  // real fix for skating; time-driven otherwise.
-  const cycle =
-    distance === null
-      ? t * WALK_RATE + phase
-      : (distance / STRIDE_LENGTH) * 2 * Math.PI + phase
+export function walkLayer(t, { phase = 0, distance = null, rig = DEFAULT_RIG } = {}) {
+  const { gait, legLength } = solveSpace(rig)
+
+  // Distance-driven when we know how far the being has walked, which is what
+  // plants the feet; time-driven otherwise, so the layer stays callable.
+  const travelled =
+    distance === null ? (t * WALK_RATE * gait.stride) / (2 * Math.PI) : distance
+
+  const feet = footTargets(travelled, phase, gait)
+  const legs = legPose(feet, rig, legLength)
+
+  // Torso and arms still run off the cycle. Expressed as an angle so the
+  // sines below read the same way they did before the legs changed.
+  const cycle = feet.cycle * 2 * Math.PI
   const step = Math.sin(cycle)
   const opposite = Math.sin(cycle + Math.PI)
   // Twice the stride frequency: the body rises on each foot, not each cycle.
   const bob = Math.cos(cycle * 2)
 
   return {
-    // Legs. A being that glides reads as broken, whereas an imperfect walk
-    // reads as stylised — so this errs toward doing something rather than
-    // nothing. It is not IK: there is no foot planting, so at very high
-    // speeds the feet will skate. Matching stride rate to ground speed
-    // would fix most of that and is the obvious next refinement.
-    //
-    // Legs point −Y at rest, so a negative X rotation swings forward.
-    leftUpperLeg: [-step * 0.52, 0, 0],
-    rightUpperLeg: [-opposite * 0.52, 0, 0],
-    // Knees only bend one way. Clamping at zero is what keeps the joint
-    // from inverting, which is the single most obviously-wrong thing a
-    // procedural leg can do.
-    leftLowerLeg: [Math.max(0, Math.sin(cycle - 0.9)) * 0.95, 0, 0],
-    rightLowerLeg: [Math.max(0, Math.sin(cycle - 0.9 + Math.PI)) * 0.95, 0, 0],
-    // Ankles roughly counter the thigh so the feet stay near level.
-    leftFoot: [step * 0.26, 0, 0],
-    rightFoot: [opposite * 0.26, 0, 0],
+    ...legs,
 
     // Torso. Small counter-rotation against the hips, and a lean into the
-    // direction of travel.
-    hips: [0.03, step * 0.1, bob * 0.02],
+    // direction of travel. The vertical bob that used to live on the hips is
+    // gone — the pelvis now moves because the legs cannot reach any higher,
+    // which is both the real cause and always in phase.
+    hips: [0.03, step * 0.1, 0],
     spine: [0.04, step * -0.06, 0],
     chest: [0.02, step * -0.04, 0],
 
@@ -138,14 +147,81 @@ export function walkLayer(t, { phase = 0, distance = null } = {}) {
     // subtly and unmistakably wrong in a way that is hard to name.
     //
     // These are **deltas**. The idle layer already places the arms at rest,
-    // and layers add, so repeating the rest rotation here applied it twice
-    // and swung the arms far past the body.
+    // and layers compose, so repeating the rest rotation here applied it
+    // twice and swung the arms far past the body.
     leftUpperArm: [step * 0.38, 0, 0.05],
     rightUpperArm: [opposite * 0.38, 0, -0.05],
     leftLowerArm: [Math.max(0, step) * 0.24, 0, 0],
     rightLowerArm: [Math.max(0, opposite) * 0.24, 0, 0],
 
     head: [bob * -0.018, 0, 0],
+  }
+}
+
+/**
+ * How far the pelvis sits below its standing height at this moment, in metres
+ * and negative downward.
+ *
+ * Separate from the pose because it is a translation, not a rotation. Folding
+ * it into a Pose would mean every consumer of a Pose had to know about one
+ * bone whose three numbers meant something different from all the others.
+ *
+ * Two things lower the pelvis, and both belong here rather than in the gait:
+ * the small permanent crouch of never locking a knee, and the stride-driven
+ * drop of a leg reaching out.
+ */
+export function walkHipOffset(distance, phase = 0, rig = DEFAULT_RIG) {
+  const { gait, legLength } = solveSpace(rig)
+  const crouch = rig.upperLeg + rig.lowerLeg - legLength
+  return -(crouch + pelvisDrop(footTargets(distance, phase, gait), legLength))
+}
+
+/**
+ * The gait a given rig walks with. Exposed because stride is no longer a
+ * constant anyone can assume — it is proportioned to the legs, so a caller
+ * that needs to know how far a cycle covers has to ask.
+ */
+export function walkGait(rig = DEFAULT_RIG) {
+  return solveSpace(rig).gait
+}
+
+/**
+ * The two numbers every function here needs: the standing leg length to solve
+ * against, and the gait proportioned to it.
+ *
+ * Derived in one place so the stride the feet follow and the leg that has to
+ * reach them can never be computed from different assumptions — which would
+ * show up as a permanent limp nobody could locate.
+ */
+function solveSpace(rig) {
+  const legLength = (rig.upperLeg + rig.lowerLeg) * STAND
+  return { gait: gaitFor(legLength), legLength }
+}
+
+/**
+ * Solve both legs for a set of foot targets.
+ *
+ * Targets arrive in the body's frame with the origin on the ground; the
+ * solver wants them relative to the hip joint, so the only work here is
+ * moving the origin up to the pelvis and handing each leg to `solveLeg`.
+ */
+function legPose(feet, rig, legLength) {
+  const { upperLeg, lowerLeg } = rig
+  const hipY = legLength - pelvisDrop(feet, legLength)
+
+  const left = solveLeg([0, feet.left.pos[1] - hipY, feet.left.pos[2]], upperLeg, lowerLeg)
+  const right = solveLeg([0, feet.right.pos[1] - hipY, feet.right.pos[2]], upperLeg, lowerLeg)
+
+  return {
+    leftUpperLeg: [left.hip, 0, 0],
+    rightUpperLeg: [right.hip, 0, 0],
+    leftLowerLeg: [left.knee, 0, 0],
+    rightLowerLeg: [right.knee, 0, 0],
+    // Ankle cancels the thigh and shin so the sole stays level with the
+    // ground. Bone rotations compound down the chain, so keeping a foot flat
+    // means undoing everything above it.
+    leftFoot: [-(left.hip + left.knee), 0, 0],
+    rightFoot: [-(right.hip + right.knee), 0, 0],
   }
 }
 
@@ -255,8 +331,14 @@ export function layersFor(state, t, options = {}) {
 
   layers.push({ pose: idleLayer(t, options), weight: 1 })
 
-  if (proceduralWalk) {
-    layers.push({ pose: walkLayer(t, options), weight: 1 })
+  // `walkWeight` lets the caller fade the walk in and out rather than
+  // switching it. That matters more since the legs became IK: the pelvis now
+  // rides several centimetres lower while walking, and switching that on in
+  // one frame is a visible hop. Defaults to a hard switch so a test or a
+  // tuner need not thread a blend it does not care about.
+  const weight = proceduralWalk ? (options.walkWeight ?? 1) : 0
+  if (weight > 0.001) {
+    layers.push({ pose: walkLayer(t, options), weight })
   }
 
   if (state.gesture?.procedural) {
