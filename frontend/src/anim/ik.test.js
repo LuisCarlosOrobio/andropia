@@ -9,7 +9,20 @@
 import { describe, expect, it } from 'vitest'
 import { forwardLeg, solveLeg } from './ik.js'
 import { DEFAULT_GAIT, STANCE, STRIDE_RATIO, footTargets, gaitFor, pelvisDrop } from './gait.js'
-import { DEFAULT_RIG, walkGait, walkHipOffset, walkLayer } from './layers.js'
+import { DEFAULT_RIG, idleLayer, walkGait, walkHipOffset, walkLayer } from './layers.js'
+import { IDENTITY_QUAT, composeLayers } from './pose.js'
+
+/** Rotate a vector by a quaternion, to ask where a bone actually ended up. */
+function rotate([x, y, z, w], [vx, vy, vz]) {
+  const tx = 2 * (y * vz - z * vy)
+  const ty = 2 * (z * vx - x * vz)
+  const tz = 2 * (x * vy - y * vx)
+  return [
+    vx + w * tx + (y * tz - z * ty),
+    vy + w * ty + (z * tx - x * tz),
+    vz + w * tz + (x * ty - y * tx),
+  ]
+}
 
 const UPPER = 0.42
 const LOWER = 0.42
@@ -98,12 +111,27 @@ describe('the gait', () => {
     }
   })
 
-  it('keeps a planted foot on the ground', () => {
+  it('keeps a planted foot in contact with the ground', () => {
+    // The ANKLE is no longer on the floor during stance — the contact point
+    // is. The foot rolls over its heel as it lands and its toe as it leaves,
+    // so the ankle rides up at both ends and is only down at mid-stance.
+    // Asserting ankle-height-zero would forbid the roll.
     for (let d = 0; d < 5; d += 0.013) {
       const { left, right } = footTargets(d)
-      if (left.planted) expect(left.pos[1]).toBe(0)
-      if (right.planted) expect(right.pos[1]).toBe(0)
+      for (const foot of [left, right]) {
+        if (!foot.planted) continue
+        expect(foot.pos[1]).toBeGreaterThanOrEqual(0)
+        expect(foot.pos[1]).toBeLessThanOrEqual(DEFAULT_GAIT.rocker + 1e-9)
+      }
     }
+  })
+
+  it('puts the sole flat at mid-stance', () => {
+    // The roll has to pass through flat, or the foot is forever on an edge.
+    const flat = footTargets(DEFAULT_GAIT.stride * (STANCE / 2), 0).left
+    expect(flat.planted).toBe(true)
+    expect(flat.pos[1]).toBeCloseTo(0, 9)
+    expect(flat.pitch).toBeCloseTo(0, 9)
   })
 
   it('never leaves both feet in the air', () => {
@@ -131,7 +159,28 @@ describe('the gait', () => {
       const { left } = footTargets(d)
       if (!left.planted) peak = Math.max(peak, left.pos[1])
     }
-    expect(peak).toBeCloseTo(DEFAULT_GAIT.lift, 3)
+    // Measured from the rocker height the swing starts and ends at, not from
+    // the floor — the arc has to meet stance at both seams.
+    expect(peak).toBeCloseTo(DEFAULT_GAIT.rocker + DEFAULT_GAIT.lift, 3)
+  })
+
+  it('hands the foot between stance and swing without a jump', () => {
+    // Both seams. The swing used to arc from the floor while stance left the
+    // ankle 4 cm up on the toe, so the foot teleported twice per cycle — which
+    // moved the pelvis and flicked the knee 14 degrees in one frame.
+    const step = 1e-5
+    for (const seam of [STANCE, 1.0]) {
+      const at = (c) => footTargets(c * DEFAULT_GAIT.stride, 0).left
+      const before = at(seam - step)
+      const after = at(seam + step)
+      for (const axis of [0, 1, 2]) {
+        expect(after.pos[axis], `axis ${axis} at seam ${seam}`).toBeCloseTo(
+          before.pos[axis],
+          4
+        )
+      }
+      expect(after.pitch).toBeCloseTo(before.pitch, 4)
+    }
   })
 
   it('separates the feet laterally', () => {
@@ -189,6 +238,38 @@ describe('the pelvis', () => {
     }
   })
 
+  it('does not let anything above the legs slide the planted foot', () => {
+    // The regression for "it moves more to the sides".
+    //
+    // Every other test in this file checks the gait and the solver in their
+    // own frame, which is why they all passed while the walk visibly crabbed.
+    // The legs hang off `hips`, so a rotation there moves feet the solver has
+    // already pinned — and `hips` carried a ±0.1 rad pelvis yaw, which is
+    // anatomically correct and dragged each planted foot 2 cm sideways per
+    // cycle. This measures the foot through the composed pose, where it shows.
+    const gait = walkGait()
+    let widest = 0
+
+    for (let d = 0; d < gait.stride * 2; d += gait.stride / 400) {
+      const pose = composeLayers([
+        { pose: idleLayer(d * 0.7) },
+        { pose: walkLayer(0, { distance: d }) },
+      ])
+      const feet = footTargets(d, 0, gait)
+
+      for (const foot of [feet.left, feet.right]) {
+        if (!foot.planted) continue
+        // A planted foot's lateral offset is a constant, so any sideways
+        // movement in world space came from a bone above it.
+        const world = rotate(pose.hips ?? IDENTITY_QUAT, foot.pos)
+        widest = Math.max(widest, Math.abs(world[0] - foot.pos[0]))
+      }
+    }
+
+    // Under a millimetre. The pelvis yaw managed ten times this.
+    expect(widest).toBeLessThan(0.001)
+  })
+
   it('never rises above standing height', () => {
     for (let d = 0; d < 4; d += 0.007) {
       expect(walkHipOffset(d)).toBeLessThanOrEqual(0)
@@ -214,13 +295,16 @@ describe('the walk layer', () => {
     expect(short.leftUpperLeg[0]).not.toBeCloseTo(tall.leftUpperLeg[0], 3)
   })
 
-  it('keeps the sole level with the ground', () => {
-    // Ankle cancels thigh and shin, since bone rotations compound down the
-    // chain. Without it the foot points wherever the knee left it.
+  it('gives the sole exactly the angle the gait asked for', () => {
+    // Bone rotations compound down the chain, so the ankle has to undo the
+    // thigh and shin before adding anything of its own. Previously that meant
+    // holding the sole level; now the gait dictates a roll, and the check is
+    // that the chain delivers it rather than whatever the knee left behind.
+    const gait = walkGait()
     for (let d = 0; d < 3; d += 0.01) {
       const pose = walkLayer(0, { distance: d })
       const total = pose.leftUpperLeg[0] + pose.leftLowerLeg[0] + pose.leftFoot[0]
-      expect(total).toBeCloseTo(0, 9)
+      expect(total).toBeCloseTo(footTargets(d, 0, gait).left.pitch, 9)
     }
   })
 

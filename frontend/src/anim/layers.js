@@ -41,9 +41,13 @@ export function idleLayer(t, { phase = 0, intensity = 1 } = {}) {
 
   return {
     ...REST,
-    spine: [breath * 0.018 * intensity, sway * 0.02 * intensity, drift * 0.012 * intensity],
+    // Nothing on `hips`. It is the root of the humanoid, so a rotation there
+    // turns the legs with it — harmless while standing, but while walking it
+    // swings feet the solver has pinned to the ground, and a yaw of only 0.014
+    // rad was enough to slide a planted foot 6 mm. Sway from the waist up
+    // instead, which is also what a person standing still actually does.
+    spine: [breath * 0.018 * intensity, sway * 0.03 * intensity, drift * 0.019 * intensity],
     chest: [breath * 0.026 * intensity, 0, 0],
-    hips: [0, sway * 0.014 * intensity, drift * 0.01 * intensity],
     neck: [breath * -0.008 * intensity, drift * 0.03 * intensity, 0],
     head: [breath * -0.006 * intensity, drift * 0.045 * intensity, sway * 0.02 * intensity],
     // Arms hang from the shoulders, so they inherit a little of the sway.
@@ -134,13 +138,18 @@ export function walkLayer(t, { phase = 0, distance = null, rig = DEFAULT_RIG } =
   return {
     ...legs,
 
-    // Torso. Small counter-rotation against the hips, and a lean into the
-    // direction of travel. The vertical bob that used to live on the hips is
-    // gone — the pelvis now moves because the legs cannot reach any higher,
-    // which is both the real cause and always in phase.
-    hips: [0.03, step * 0.1, 0],
-    spine: [0.04, step * -0.06, 0],
-    chest: [0.02, step * -0.04, 0],
+    // Torso counter-rotation, and a lean into the direction of travel.
+    //
+    // Nothing goes on `hips` any more. It is the root of the humanoid, so a
+    // rotation there moves the legs — including the feet the solver has just
+    // pinned to the ground. A ±0.1 rad pelvis yaw, which is anatomically
+    // right and looked harmless while the legs were sines, dragged each
+    // planted foot 2 cm sideways per cycle once they were IK targets. A real
+    // pelvis does rotate, but representing that faithfully means solving the
+    // legs in the rotated frame, and the visible half of the effect is the
+    // shoulders counter-rotating anyway — so it lives on the spine.
+    spine: [0.055, step * -0.09, 0],
+    chest: [0.02, step * -0.06, 0],
 
     // Arms counter-swing against the legs — the left arm goes back as the
     // left leg comes forward. Getting this backwards produces a gait that is
@@ -223,11 +232,11 @@ function legPose(feet, rig, legLength) {
     rightUpperLeg: [right.hip, 0, 0],
     leftLowerLeg: [left.knee, 0, 0],
     rightLowerLeg: [right.knee, 0, 0],
-    // Ankle cancels the thigh and shin so the sole stays level with the
-    // ground. Bone rotations compound down the chain, so keeping a foot flat
-    // means undoing everything above it.
-    leftFoot: [-(left.hip + left.knee), 0, 0],
-    rightFoot: [-(right.hip + right.knee), 0, 0],
+    // Ankle undoes the thigh and shin, since bone rotations compound down the
+    // chain, and then adds the sole angle the gait asked for — flat through
+    // mid-stance, toe up at heel strike, heel up at toe-off.
+    leftFoot: [-(left.hip + left.knee) + feet.left.pitch, 0, 0],
+    rightFoot: [-(right.hip + right.knee) + feet.right.pitch, 0, 0],
   }
 }
 

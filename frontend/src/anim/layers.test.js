@@ -153,7 +153,10 @@ describe('walk', () => {
     // Procedural locomotion looks wrong if pushed; people are exquisitely
     // sensitive to how walking looks.
     for (let t = 0; t < 6; t += 0.05) {
-      expect(Math.abs(walkLayer(t).hips[1])).toBeLessThan(0.15)
+      // Torso twist, which used to sit on `hips` until that turned out to
+      // rotate the IK-solved legs along with it.
+      expect(walkLayer(t).hips).toBeUndefined()
+      expect(Math.abs(walkLayer(t).spine[1])).toBeLessThan(0.15)
     }
   })
 
