@@ -1,68 +1,26 @@
-import os
-import subprocess
-from fastapi import FastAPI, WebSocket, HTTPException, UploadFile, File, Form
+from pathlib import Path
+
+from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import websockets
-from httpx import Timeout
 import httpx
 import json
-import base64
-import uuid
-import re
-import shutil
 
 app = FastAPI()
 
-dist_directory = "/root/maip3/static/dist"
-textures_directory = "/root/maip3/static/dist/src/textures"
+# Resolved against this file, not the process CWD, so the app runs from anywhere.
+DIST_DIR = Path(__file__).resolve().parent / "static" / "dist"
 
-# Serve the 'dist' directory
-app.mount("/dist", StaticFiles(directory=dist_directory), name="dist")
+# StaticFiles normalises paths and enforces containment; do not hand-roll this.
+app.mount("/dist", StaticFiles(directory=DIST_DIR), name="dist")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def get_root():
-    # Serve 'index.html' from the 'dist' directory
-    return FileResponse(os.path.join(dist_directory, "index.html"))
+    return FileResponse(DIST_DIR / "index.html")
 
-@app.get("/dist/{file_path:path}")
-async def serve_static_file(file_path: str):
-    print("Serving file:", file_path)
-    return FileResponse(dist_directory + "/" + file_path)
-
-def start_server(brain_model):
-    if brain_model == "Mistral7B":
-        # Execute the bash script to start the server
-        subprocess.Popen(["/root/maip3/start_server.sh"])
-
-@app.post("/upload-gltf/")
-async def upload_gltf(files: list[UploadFile] = File(...)):
-    uploaded_files = []
-    os.makedirs(textures_directory, exist_ok=True)
-    for file in files:
-        file_path = os.path.join(textures_directory, file.filename)
-        try:
-            with open(file_path, "wb") as file_object:
-                shutil.copyfileobj(file.file, file_object)
-            uploaded_files.append(file.filename)
-            print(f"Uploaded {file.filename} to {file_path}")
-        except Exception as e:
-            print(f"Failed to save {file.filename}: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to save {file.filename}: {str(e)}")
-    return {"files": uploaded_files}  # Return the list of uploaded file names
-
-
-@app.get("/list-gltf-files")
-async def list_gltf_files():
-    gltf_files = [f for f in os.listdir(textures_directory) if f.endswith('.gltf')]
-    return {"files": gltf_files}
-
-@app.post("/start-server/{brain_model}")
-async def start_server_endpoint(brain_model: str):
-    # Call the function to start the server
-    start_server(brain_model)
-    return {"message": f"Server for {brain_model} starting asynchronously"}
 
 async def transcribe_audio(audio_data):
     async with websockets.connect("ws://localhost:5000/ws") as ws:
@@ -165,16 +123,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 message = await websocket.receive_text()
                 try:
                     command_json = json.loads(message)
-                    if command_json.get('command') == 'start' and all(k in command_json for k in ['brain', 'system_prompt', 'anti_prompt', 'assistant_name']):
+                    required = ['brain', 'system_prompt', 'anti_prompt', 'assistant_name', 'voice']
+                    if command_json.get('command') == 'start' and all(k in command_json for k in required):
                         brain_model = command_json['brain']
                         prompt = command_json['system_prompt']
                         anti_prompt = command_json['anti_prompt']
                         assistant_name = command_json['assistant_name']
                         voice_model = command_json['voice']
 
-                        # Start the server using the specified brain model
-                        start_server(brain_model)
-                        await websocket.send_text(json.dumps({"status": "Model starting", "brain_model": brain_model}))
+                        # The model server is started by the operator, not by this
+                        # process. Andropia connects to an endpoint; it does not
+                        # spawn one.
+                        await websocket.send_text(json.dumps({"status": "connected", "brain_model": brain_model}))
 
                         setup_complete = True  # Mark setup as complete, allowing other processes to proceed
                         await websocket.send_text(json.dumps({
@@ -234,4 +194,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=6000)
+    # Loopback by default. Binding 0.0.0.0 exposes an unauthenticated service to
+    # the network; if you need that, put a reverse proxy with auth in front.
+    # Port 6000 is on Chrome's and Firefox's blocked-port list (X11), so it is
+    # unreachable from a browser without a proxy — 8600 is not.
+    uvicorn.run(app, host="127.0.0.1", port=8600)

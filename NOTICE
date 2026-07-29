@@ -1,0 +1,59 @@
+Andropia
+Copyright 2023-2026 Luis Carlos Orobio
+
+This product includes software developed as part of the Andropia project,
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+================================================================================
+BUNDLED THIRD-PARTY ASSETS
+================================================================================
+
+The Apache License 2.0 in LICENSE applies to the SOURCE CODE of this project
+ONLY. Bundled assets — 3D models, animations, textures, fonts, and audio —
+carry their own separate licenses and are NOT covered by, and are NOT
+sublicensed under, Apache-2.0.
+
+Per-asset provenance, license text, retrieval dates, and verified metadata are
+recorded in ASSET-LICENSES.md. That file is authoritative; this is a summary.
+
+--------------------------------------------------------------------------------
+RobotExpressive.glb
+--------------------------------------------------------------------------------
+    Model by Tomas Laulhe (Quaternius). Licensed CC0 1.0 Universal.
+    Modifications by Don McCurdy: added three facial expression morph targets,
+    converted with FBX2GLTF, removed duplicate materials.
+
+    CC0 imposes no conditions. Credit is given voluntarily.
+
+--------------------------------------------------------------------------------
+AvatarSample_B.vrm
+--------------------------------------------------------------------------------
+    (c) pixiv Inc. Authored by VRoid Project.
+
+    Used under the VRoid sample model terms of use. Those terms permit free
+    redistribution, modification, and commercial use, and require no credit.
+
+    THIS ASSET IS NOT LICENSED UNDER APACHE-2.0. pixiv has not granted
+    sublicensing rights. In particular, pixiv's terms expressly prohibit
+    redistributing this model under a CC0 dedication. Do not represent this
+    file as being covered by this project's license.
+
+    A dated copy of the terms as published at the time of inclusion is
+    archived alongside the asset.
+
+--------------------------------------------------------------------------------
+Grass.js, shaders.js
+--------------------------------------------------------------------------------
+    Derived from a WebGL stylized-grass demo. See ASSET-LICENSES.md for
+    provenance and current license status.
+
+================================================================================
+NOT BUNDLED
+================================================================================
+
+Andropia connects to language models, speech recognition, and speech synthesis
+that users supply themselves. No model weights are distributed with this
+project, and their licenses are the user's responsibility.
+
+Mixamo animations in particular MAY NOT be redistributed as raw files; if you
+use them, obtain them yourself under Adobe's terms.

@@ -1,0 +1,49 @@
+# --- Dependencies (never vendored) ---
+node_modules/
+.venv/
+venv/
+
+# --- Build output & caches ---
+dist/
+build/
+.cache/
+.parcel-cache/
+*.tsbuildinfo
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Environment & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Models & large assets (fetched, not committed) ---
+models/
+*.gguf
+*.onnx
+*.safetensors
+
+# --- Avatar & world packs (users bring their own; examples are explicit) ---
+avatars/*
+!avatars/.gitkeep
+!avatars/README.md
+worlds/*
+!worlds/.gitkeep
+!worlds/README.md
+
+# --- Simulation artifacts ---
+snapshots/
+recordings/
+*.worldlog
+
+# --- OS & editor cruft ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
