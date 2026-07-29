@@ -219,6 +219,15 @@ def create_app(world: World, *, autostart: bool = False) -> FastAPI:
         async def index() -> FileResponse:
             return FileResponse(FRONTEND_DIR / "index.html")
 
+        @app.get("/tune")
+        async def tune() -> FileResponse:
+            """The pose tuner — a development tool, not part of the product.
+
+            Loads one avatar with no simulation attached so gesture
+            keyframes can be scrubbed and edited live.
+            """
+            return FileResponse(FRONTEND_DIR / "tune.html")
+
     return app
 
 

@@ -109,3 +109,42 @@ python -c "from pathlib import Path; from andropia.packs import load_pack; print
 Ava's terms permit redistribution and commercial use but are **not**
 Apache-2.0 and **not** CC0; pixiv has not granted sublicensing rights. See
 `../ASSET-LICENSES.md`.
+
+---
+
+## Tuning gestures
+
+Gesture angles cannot be tuned by reasoning about a rig — they have to be
+watched. Triggering one through the simulation and waiting out its 1.5
+seconds is far too slow a loop to converge on anything, so there is a
+dedicated tuner:
+
+```bash
+# terminal 1 — the simulation server, which serves the models
+python -m andropia.runtime.server
+
+# terminal 2 — the frontend dev server, for hot reload
+cd frontend && npm run dev
+```
+
+Then open **`/tune`**.
+
+It loads one avatar with no simulation attached. Pick a gesture, scrub its
+phase or loop it at half speed, and drag the per-bone sliders — edits apply
+live. When it looks right, **copy gesture as JSON** puts the whole keyframe
+list on your clipboard, formatted to paste straight over the entry in
+`src/anim/gestures.js`. Saving that file hot-reloads the tuner.
+
+Some notes from authoring the current set:
+
+- **The rest pose is a T-pose.** Every rotation in a gesture is a delta from
+  arms-straight-out, which is why `REST` exists and why the arm values are
+  large. Toggle the idle layer off to see the raw T-pose.
+- **Keep the first and last keyframe empty.** A gesture that does not start
+  and end at rest will snap.
+- **Left and right take opposite signs.** The left arm points +X and the
+  right points −X, so mirroring a pose means negating the Z rotation.
+- **Watch it with the idle layer on.** Gestures compose additively over
+  breathing and sway, and a pose that looks right in isolation can fight it.
+- **Procedural poses need a VRM.** A plain glTF has no normalised humanoid
+  rig, so the sliders will do nothing on the robot — use Ava.

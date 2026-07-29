@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Andropia — pose tuner</title>
+    <style>
+      :root {
+        --ink: #e6e9ec;
+        --dim: #8b959e;
+        --panel: rgba(18, 22, 26, 0.92);
+        --line: rgba(255, 255, 255, 0.09);
+        --accent: #79b4d0;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0e1114; }
+      canvas { display: block; }
+
+      .panel {
+        position: fixed; font-family: var(--mono); font-size: 12px; color: var(--ink);
+        background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+        padding: 11px 13px; backdrop-filter: blur(8px);
+      }
+      #controls { top: 12px; left: 12px; width: 260px; }
+      #bones {
+        top: 12px; right: 12px; width: 330px;
+        max-height: calc(100vh - 24px); overflow-y: auto;
+      }
+
+      h2 {
+        margin: 0 0 9px; font-size: 11px; font-weight: 600;
+        letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+      }
+      h3 {
+        margin: 12px 0 5px; font-size: 11px; font-weight: 600; color: var(--accent);
+        letter-spacing: 0.06em;
+      }
+      label { display: block; margin: 8px 0 3px; color: var(--dim); font-size: 11px; }
+      select, input[type="range"] { width: 100%; }
+      select {
+        font-family: var(--mono); font-size: 12px; color: var(--ink);
+        background: rgba(255,255,255,0.06); border: 1px solid var(--line);
+        border-radius: 4px; padding: 4px 6px;
+      }
+      button {
+        font-family: var(--mono); font-size: 11px; color: var(--ink);
+        background: rgba(255,255,255,0.06); border: 1px solid var(--line);
+        border-radius: 4px; padding: 5px 10px; cursor: pointer; margin: 6px 4px 0 0;
+      }
+      button:hover { background: rgba(255,255,255,0.13); }
+      button.on { background: #2c6d8c; border-color: #2c6d8c; }
+      button.wide { width: 100%; margin-right: 0; }
+
+      .row { display: flex; justify-content: space-between; padding: 2px 0; }
+      .row span:last-child { font-variant-numeric: tabular-nums; }
+
+      .bone { border-top: 1px solid var(--line); padding-top: 7px; margin-top: 7px; }
+      .bone .name { color: var(--accent); font-size: 11px; margin-bottom: 3px; }
+      .axis { display: grid; grid-template-columns: 14px 1fr 52px; gap: 6px; align-items: center; }
+      .axis span:first-child { color: var(--dim); }
+      .axis span:last-child { font-variant-numeric: tabular-nums; text-align: right; font-size: 11px; }
+
+      #status { position: fixed; bottom: 12px; left: 12px;
+        font-family: var(--mono); font-size: 11px; color: var(--dim); }
+      #hint { position: fixed; bottom: 12px; right: 12px;
+        font-family: var(--mono); font-size: 11px; color: var(--dim); text-align: right; }
+      .note { color: var(--dim); font-size: 10.5px; line-height: 1.5; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="controls" class="panel">
+      <h2>Pose tuner</h2>
+
+      <label for="avatar">avatar</label>
+      <select id="avatar"></select>
+
+      <label for="gesture">gesture</label>
+      <select id="gesture"></select>
+
+      <label for="phase">phase <span id="phase-value">0.00</span></label>
+      <input id="phase" type="range" min="0" max="1" step="0.001" value="0" />
+
+      <div>
+        <button id="loop" class="on">loop</button>
+        <button id="slow">½×</button>
+        <button id="reset">reset</button>
+      </div>
+
+      <h3>layers</h3>
+      <div>
+        <button id="idle" class="on">idle</button>
+        <button id="walk">walk</button>
+      </div>
+
+      <label for="key">editing keyframe</label>
+      <select id="key"></select>
+
+      <button id="copy" class="wide">copy gesture as JSON</button>
+
+      <p class="note">
+        Edits apply live. Copy when it looks right and paste over the entry in
+        <code>src/anim/gestures.js</code>. Saving that file hot-reloads here.
+      </p>
+    </div>
+
+    <div id="bones" class="panel">
+      <h2>bones · keyframe <span id="key-label">—</span></h2>
+      <div id="bone-list"></div>
+      <button id="add-bone" class="wide">add a bone to this keyframe</button>
+    </div>
+
+    <div id="status">loading…</div>
+    <div id="hint">drag to orbit · scroll to zoom</div>
+
+    <script type="module" src="/src/tune.js"></script>
+  </body>
+</html>
