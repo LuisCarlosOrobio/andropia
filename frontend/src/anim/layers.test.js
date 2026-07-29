@@ -16,6 +16,7 @@ import {
   layersFor,
   sampleKeys,
   visemeWeights,
+  STRIDE_LENGTH,
   WALK_RATE,
   walkLayer,
 } from './layers.js'
@@ -396,5 +397,39 @@ describe('walk regressions', () => {
     const period = (2 * Math.PI) / WALK_RATE
     expect(walkLayer(0).hips[2]).toBeCloseTo(walkLayer(period).hips[2], 5)
     expect(walkLayer(0).hips[2]).toBeCloseTo(walkLayer(period / 2).hips[2], 5)
+  })
+})
+
+describe('foot planting', () => {
+  it('advances the cycle with distance, not time', () => {
+    // The fix for skating: a being that has not moved has not stepped,
+    // however long it has been standing there.
+    const a = walkLayer(0, { distance: 0 })
+    const b = walkLayer(99, { distance: 0 })
+    expect(a).toEqual(b)
+  })
+
+  it('completes one cycle per stride length', () => {
+    const a = walkLayer(0, { distance: 0 })
+    const b = walkLayer(0, { distance: STRIDE_LENGTH })
+    expect(a.leftUpperLeg[0]).toBeCloseTo(b.leftUpperLeg[0], 5)
+  })
+
+  it('steps at the same ground positions whatever the speed', () => {
+    // Slow and fast beings covering the same ground must be at the same
+    // point in their gait. This is what stops the feet sliding.
+    for (const d of [0.3, 0.75, 1.1, 2.4]) {
+      const slow = walkLayer(d / 0.4, { distance: d }) // 0.4 m/s
+      const fast = walkLayer(d / 3.0, { distance: d }) // 3.0 m/s
+      expect(slow.leftUpperLeg[0]).toBeCloseTo(fast.leftUpperLeg[0], 9)
+      expect(slow.rightLowerLeg[0]).toBeCloseTo(fast.rightLowerLeg[0], 9)
+    }
+  })
+
+  it('falls back to time when distance is unknown', () => {
+    // Keeps the layer callable from the tuner, which has no world.
+    const a = walkLayer(0)
+    const b = walkLayer(0.3)
+    expect(a.leftUpperLeg[0]).not.toBeCloseTo(b.leftUpperLeg[0], 3)
   })
 })

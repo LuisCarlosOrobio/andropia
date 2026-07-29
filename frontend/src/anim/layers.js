@@ -60,7 +60,20 @@ export function idleLayer(t, { phase = 0, intensity = 1 } = {}) {
 
 // -- locomotion ------------------------------------------------------------
 
-/** Radians per second of walk cycle. Two steps per full cycle. */
+/**
+ * Metres of ground covered per full walk cycle — two steps, so roughly a
+ * 0.75 m stride. Driving the cycle by DISTANCE rather than by time is what
+ * keeps the feet planted: a being moving slowly takes slow steps and a
+ * being hurrying takes quick ones, both landing at the same points on the
+ * ground, with no rate constant to keep in sync with anything.
+ */
+export const STRIDE_LENGTH = 1.5
+
+/**
+ * Fallback rate, in radians per second, used only when no distance is
+ * supplied. Present so the layer stays callable from a tuner or a test
+ * that has no notion of a being moving through a world.
+ */
 export const WALK_RATE = 5.2
 
 /**
@@ -75,13 +88,21 @@ export const WALK_RATE = 5.2
  * being gliding across the ground reads as *broken*, while an imperfect
  * walk reads as stylised. Doing something beats doing nothing.
  *
- * Still not IK. There is no foot planting, so at speeds far from the tuned
- * stride rate the feet will skate. Driving the cycle from ground speed
- * rather than wall time would fix most of that, and is the obvious next
- * refinement.
+ * Still not IK — no solver pins a foot to a spot and holds it there. But
+ * the cycle advances with distance travelled rather than with the clock,
+ * which removes the cause of most visible skating: the feet now complete a
+ * stride per STRIDE_LENGTH of ground regardless of how fast the being is
+ * moving. What remains is the residual from the foot arc not exactly
+ * matching the ground plane, which is a much smaller error and needs real
+ * IK to remove entirely.
  */
-export function walkLayer(t, { phase = 0 } = {}) {
-  const cycle = t * WALK_RATE + phase
+export function walkLayer(t, { phase = 0, distance = null } = {}) {
+  // Distance-driven when we know how far the being has walked, which is the
+  // real fix for skating; time-driven otherwise.
+  const cycle =
+    distance === null
+      ? t * WALK_RATE + phase
+      : (distance / STRIDE_LENGTH) * 2 * Math.PI + phase
   const step = Math.sin(cycle)
   const opposite = Math.sin(cycle + Math.PI)
   // Twice the stride frequency: the body rises on each foot, not each cycle.

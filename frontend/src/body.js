@@ -61,10 +61,15 @@ export class Body {
     this.vrm = vrm
     this.root = vrm ? vrm.scene : gltf.scene
 
-    // VRM 1.0 faces +Z; glTF convention here faces -Z. Wrapping in a group
-    // means the caller sets one rotation and never thinks about it again.
+    // A wrapping group, so the caller sets one rotation and never thinks
+    // about the model's internal orientation.
+    //
+    // No flip. VRM 1.0 faces +Z, and `facingToYaw` uses atan2(x, z) so that
+    // yaw 0 also means +Z — the two already agree. An earlier version
+    // rotated the root by π, which made every avatar face away from its
+    // direction of travel. Invisible while bodies slid; unmistakable the
+    // moment their legs started moving.
     this.group = new THREE.Group()
-    if (vrm) this.root.rotation.y = Math.PI
     this.group.add(this.root)
 
     this.mixer = new THREE.AnimationMixer(this.root)
@@ -79,6 +84,12 @@ export class Body {
     // Seconds of animation time. Advanced by dt rather than read from a
     // clock, so two runs of the same recording animate identically.
     this.clock = 0
+    // Ground distance travelled. The walk cycle is driven by this rather
+    // than by time, so a being's feet land at consistent points on the
+    // ground instead of skating whenever its speed differs from whatever
+    // stride rate happened to be hardcoded.
+    this.distance = 0
+    this._lastPos = null
     // Per-body offset, so a crowd does not breathe or blink in unison —
     // which is uncanny in a way that is hard to name and impossible to miss.
     this.phase = hashPhase(beingId)
@@ -104,6 +115,13 @@ export class Body {
     this.clock += dt
 
     const [x, y, z] = state.position
+    if (this._lastPos) {
+      const dx = x - this._lastPos[0]
+      const dz = z - this._lastPos[2]
+      this.distance += Math.hypot(dx, dz)
+    }
+    this._lastPos = state.position
+
     this.group.position.set(x, y, z)
     if (state.yaw !== null) this._lastYaw = state.yaw
     this.group.rotation.y = this._lastYaw
@@ -114,7 +132,7 @@ export class Body {
     if (this.vrm) {
       // Procedural: breathing, sway, blink, gaze and any gesture with no
       // clip. Composed as data, applied once.
-      const options = { phase: this.phase }
+      const options = { phase: this.phase, distance: this.distance }
       const pose = blendLayers(layersFor(state, this.clock, options))
       applyPose(this.vrm, pose)
 
