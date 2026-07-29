@@ -191,6 +191,7 @@ def create_app(world: World, *, autostart: bool = False) -> FastAPI:
                     "emotions": list(r.pack.supported_emotions),
                     "gestures": list(r.pack.supported_gestures),
                     "clips": {k: v.clip for k, v in r.pack.motions.items()},
+                    "locomotion": dict(r.pack.locomotion),
                     "license": r.pack.license.id,
                     "attribution": r.pack.license.attribution,
                     "warnings": list(r.warnings),

@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from ..vocab import EMOTIONS, GESTURES
+from ..vocab import EMOTIONS, GESTURES, LOCOMOTION
 
 SCHEMA_VERSION = 1
 PROTOCOL_VERSION = 1
@@ -77,6 +77,8 @@ class Pack:
     # canonical name -> name in this rig
     expressions: dict[str, str] = field(default_factory=dict)
     motions: dict[str, Motion] = field(default_factory=dict)
+    #: canonical locomotion state -> looping clip in this rig
+    locomotion: dict[str, str] = field(default_factory=dict)
     schema: int = SCHEMA_VERSION
     protocol: int = PROTOCOL_VERSION
 
@@ -211,6 +213,9 @@ def validate(raw: Any, rig: Any = None) -> Result:
     # -- motions ----------------------------------------------------------
     motions = _motions(raw, rig, errors, warnings)
 
+    # -- locomotion -------------------------------------------------------
+    locomotion = _locomotion(raw, rig, errors)
+
     # -- model file consistency ------------------------------------------
     if rig is not None and pack_type == "vrm" and not rig.is_vrm:
         errors.append(
@@ -234,6 +239,7 @@ def validate(raw: Any, rig: Any = None) -> Result:
             persona=persona,
             expressions=expressions,
             motions=motions,
+            locomotion=locomotion,
             schema=schema,
             protocol=protocol,
         ),
@@ -408,6 +414,54 @@ def _motions(
         motions[canonical] = Motion(clip=clip)
 
     return motions
+
+
+def _locomotion(raw: dict, rig: Any, errors: list[PackError]) -> dict[str, str]:
+    """Looping clips for continuous states.
+
+    Optional, like motions: a body with no walk cycle still moves, it simply
+    slides rather than strides until a clip is supplied. Procedural
+    locomotion is the one thing that genuinely looks wrong, which is why
+    this is the block most worth filling in.
+    """
+    declared = raw.get("locomotion")
+    if declared is None:
+        return {}
+
+    if not isinstance(declared, dict):
+        errors.append(PackError("locomotion", "must be an object"))
+        return {}
+
+    out: dict[str, str] = {}
+    clips = tuple(rig.clips) if rig is not None else None
+
+    for state, clip in declared.items():
+        if state not in LOCOMOTION:
+            errors.append(
+                PackError(
+                    f"locomotion.{state}",
+                    "not a canonical locomotion state",
+                    f"expected one of: {', '.join(LOCOMOTION)}",
+                )
+            )
+            continue
+        if not isinstance(clip, str) or not clip.strip():
+            errors.append(
+                PackError(f"locomotion.{state}", "must be a non-empty string")
+            )
+            continue
+        if clips is not None and clip not in clips:
+            errors.append(
+                PackError(
+                    f"locomotion.{state}",
+                    f"{clip!r} is not in the model",
+                    _found(clips),
+                )
+            )
+            continue
+        out[state] = clip
+
+    return out
 
 
 def _available_expressions(rig: Any, pack_type: Any) -> tuple[str, ...] | None:

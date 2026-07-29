@@ -38,6 +38,14 @@ GESTURES: tuple[str, ...] = (
     "idle_variant",
 )
 
+#: Continuous locomotion states. Distinct from gestures: these loop and
+#: reflect what a being *is doing*, rather than firing once and ending.
+#: A pack may back them with clips; procedural fallbacks cover the rest.
+LOCOMOTION: tuple[str, ...] = (
+    "idle",
+    "walk",
+)
+
 #: `goto` is a motion in the tag grammar but resolves to navigation rather
 #: than to a clip, so it is not a gesture and is not listed above.
 NAVIGATION_MOTION = "goto"

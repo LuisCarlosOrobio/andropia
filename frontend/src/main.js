@@ -13,6 +13,7 @@
  */
 
 import { connect } from './net.js'
+import { createBodyCache, fetchPacks } from './packs.js'
 import { Stage } from './stage.js'
 
 const stage = new Stage(document.body)
@@ -32,6 +33,21 @@ let previous = null
 let current = null
 let arrivedAt = 0
 let dtSeconds = 0.05  // learned from the scene message on connect
+let lastDrawAt = performance.now()
+
+// Avatar packs, fetched once. Bodies load lazily per pack; until one
+// arrives its being is a capsule, and if it fails it stays one.
+let packs = new Map()
+fetchPacks()
+  .then((found) => {
+    packs = found
+    stage.setBodyCache(createBodyCache(found))
+    console.info(`[andropia] ${found.size} avatar pack(s) available`)
+  })
+  .catch((error) => {
+    console.error('[andropia] could not load avatar packs:', error)
+    hud.status.textContent = 'no avatar packs — showing placeholders'
+  })
 
 const net = connect({
   onScene: (scene) => {
@@ -94,9 +110,16 @@ function tick() {
     // Where we are between the last two simulation ticks. Clamped, so a
     // late frame holds at the newest state rather than extrapolating into
     // positions the simulation never produced.
+    const nowMs = performance.now()
     const dtMs = dtSeconds * 1000
-    const alpha = Math.min(1, (performance.now() - arrivedAt) / dtMs)
-    stage.draw(previous, current, alpha)
+    const alpha = Math.min(1, (nowMs - arrivedAt) / dtMs)
+
+    // Real frame delta, for animation mixers and spring bones. Clamped so a
+    // backgrounded tab does not resume with one enormous step.
+    const frameDt = Math.min(0.1, (nowMs - lastDrawAt) / 1000)
+    lastDrawAt = nowMs
+
+    stage.draw(previous, current, alpha, packs, frameDt)
   }
 
   stage.render()
