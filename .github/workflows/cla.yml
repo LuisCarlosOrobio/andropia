@@ -41,15 +41,16 @@ jobs:
           path-to-signatures: 'signatures/version1/cla.json'
           branch: 'cla-signatures'
 
-          # The agreement contributors are agreeing to.
-          path-to-document: 'https://github.com/LuisCarlosOrobio/andropia/blob/main/CLA.md'
+          # The agreement contributors are agreeing to. Resolved from the
+          # repository at run time so renaming the repo cannot break it.
+          path-to-document: 'https://github.com/${{ github.repository }}/blob/main/CLA.md'
 
           allowlist: bot*,dependabot[bot]
 
           custom-notsigned-prcomment: |
             Thanks for the contribution.
 
-            Before this can be merged, please read **[CLA.md](https://github.com/LuisCarlosOrobio/andropia/blob/main/CLA.md)**
+            Before this can be merged, please read **[CLA.md](https://github.com/${{ github.repository }}/blob/main/CLA.md)**
             and sign by posting exactly this comment on this pull request:
 
             > I have read the CLA Document and I hereby sign the CLA
