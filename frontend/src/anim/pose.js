@@ -141,3 +141,82 @@ export function arc(t) {
 export function clamp01(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v
 }
+
+// -- composing rotations ---------------------------------------------------
+//
+// Adding Euler angles is not the same as composing rotations. For the small
+// deltas a single layer contributes the approximation is fine, but when a
+// gesture, a walk swing and the rest pose all stack on one shoulder the sum
+// passes through orientations that are not the rotation you would get by
+// applying them in sequence — which is visible as a limb snapping and then
+// recovering as the gesture fades.
+//
+// So layers are authored and blended as Euler triples, because those are
+// readable and tunable, and composed as quaternions, because those are
+// correct. Hand-rolled rather than imported, so this module stays free of
+// three.js and testable without a browser.
+//
+// Convention matches three.js Euler order 'YXZ'.
+
+/** Euler [x, y, z] in radians -> quaternion [x, y, z, w]. */
+export function eulerToQuat([x, y, z]) {
+  const c1 = Math.cos(x / 2)
+  const c2 = Math.cos(y / 2)
+  const c3 = Math.cos(z / 2)
+  const s1 = Math.sin(x / 2)
+  const s2 = Math.sin(y / 2)
+  const s3 = Math.sin(z / 2)
+
+  return [
+    s1 * c2 * c3 + c1 * s2 * s3,
+    c1 * s2 * c3 - s1 * c2 * s3,
+    c1 * c2 * s3 - s1 * s2 * c3,
+    c1 * c2 * c3 + s1 * s2 * s3,
+  ]
+}
+
+/** Hamilton product. Applies `b` first, then `a`. */
+export function quatMul(a, b) {
+  const [ax, ay, az, aw] = a
+  const [bx, by, bz, bw] = b
+  return [
+    ax * bw + aw * bx + ay * bz - az * by,
+    ay * bw + aw * by + az * bx - ax * bz,
+    az * bw + aw * bz + ax * by - ay * bx,
+    aw * bw - ax * bx - ay * by - az * bz,
+  ]
+}
+
+export function quatNormalize([x, y, z, w]) {
+  const n = Math.hypot(x, y, z, w)
+  return n === 0 ? [0, 0, 0, 1] : [x / n, y / n, z / n, w / n]
+}
+
+export const IDENTITY_QUAT = [0, 0, 0, 1]
+
+/**
+ * Compose a stack of layers into per-bone quaternions.
+ *
+ * The correct counterpart to `blendLayers`: same inputs, but rotations are
+ * multiplied rather than summed, so a limb driven by three layers at once
+ * ends up where those three rotations actually put it.
+ *
+ * Layers apply in order, each one rotating the result so far.
+ */
+export function composeLayers(layers) {
+  const out = {}
+
+  for (const { pose, weight = 1 } of layers) {
+    if (!pose || weight === 0) continue
+
+    for (const bone in pose) {
+      const e = pose[bone]
+      const scaled = weight === 1 ? e : [e[0] * weight, e[1] * weight, e[2] * weight]
+      const q = eulerToQuat(scaled)
+      out[bone] = bone in out ? quatMul(out[bone], q) : q
+    }
+  }
+
+  for (const bone in out) out[bone] = quatNormalize(out[bone])
+  return out
+}

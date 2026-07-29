@@ -16,20 +16,18 @@
  * authored pose apply correctly to any conformant avatar.
  */
 
-import * as THREE from 'three'
-
-// Allocated once. Reusing these is the entire reason this file is imperative.
-const _euler = new THREE.Euler()
-const _quat = new THREE.Quaternion()
-
 /**
- * Write a pose onto a VRM's normalised humanoid bones.
+ * Write composed rotations onto a VRM's normalised humanoid bones.
  *
- * Bones the pose does not mention are reset to their rest orientation, so a
- * gesture ending actually releases the arm rather than leaving it stuck
- * where the last frame put it.
+ * Takes quaternions, not Euler angles: `composeLayers` has already
+ * multiplied the layer stack, and converting back to Euler here would
+ * reintroduce exactly the gimbal artefacts that composition avoids.
+ *
+ * Bones the pose does not mention are reset to identity, so a gesture
+ * ending releases the limb rather than leaving it wherever the last frame
+ * put it.
  */
-export function applyPose(vrm, pose) {
+export function applyPose(vrm, quats) {
   const humanoid = vrm?.humanoid
   if (!humanoid) return
 
@@ -37,10 +35,9 @@ export function applyPose(vrm, pose) {
     const node = humanoid.getNormalizedBoneNode(boneName)
     if (!node) continue // rig lacks this optional bone; skip rather than fail
 
-    const rotation = pose[boneName]
-    if (rotation) {
-      _euler.set(rotation[0], rotation[1], rotation[2], 'YXZ')
-      node.quaternion.setFromEuler(_euler)
+    const q = quats[boneName]
+    if (q) {
+      node.quaternion.set(q[0], q[1], q[2], q[3])
     } else {
       node.quaternion.identity()
     }

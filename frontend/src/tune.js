@@ -18,7 +18,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { applyExpressions, applyPose } from './anim/apply.js'
 import { GESTURES } from './anim/gestures.js'
 import { blinkWeight, idleLayer, sampleKeys, walkLayer } from './anim/layers.js'
-import { blendLayers, arc, clamp01, scalePose } from './anim/pose.js'
+import { arc, clamp01, composeLayers, scalePose } from './anim/pose.js'
 import { loadBody } from './body.js'
 import { fetchPacks } from './packs.js'
 
@@ -349,7 +349,7 @@ function frame() {
     const fade = Math.min(1, arc(state.phase) * 2.2)
     layers.push({ pose: scalePose(sampled, fade) })
 
-    applyPose(body.vrm, blendLayers(layers))
+    applyPose(body.vrm, composeLayers(layers))
     applyExpressions(body.vrm, { blink: blinkWeight(clock) })
     body.vrm.update(dt)
   }

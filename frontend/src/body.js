@@ -19,7 +19,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { applyExpressions, applyGaze, applyPose } from './anim/apply.js'
-import { blendLayers } from './anim/pose.js'
+import { composeLayers } from './anim/pose.js'
 import { blinkWeight, layersFor, visemeWeights } from './anim/layers.js'
 
 // Crossfade time between locomotion states. Short enough to feel responsive,
@@ -133,7 +133,7 @@ export class Body {
       // Procedural: breathing, sway, blink, gaze and any gesture with no
       // clip. Composed as data, applied once.
       const options = { phase: this.phase, distance: this.distance }
-      const pose = blendLayers(layersFor(state, this.clock, options))
+      const pose = composeLayers(layersFor(state, this.clock, options))
       applyPose(this.vrm, pose)
 
       applyExpressions(this.vrm, {
