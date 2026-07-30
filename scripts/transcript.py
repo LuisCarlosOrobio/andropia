@@ -27,6 +27,7 @@ def main() -> int:
 
     seen = 0
     trouble: dict[str, str] = {}
+    doing: dict[str, tuple] = {}
     print(f"tailing {URL}  (ctrl-c to stop)\n")
 
     while True:
@@ -46,6 +47,21 @@ def main() -> int:
                 continue
             print(f"  t={line['tick']:<6} {line['speaker']:<8} {line['text']}")
             seen = line["tick"] + 1
+
+        # Actions, so narration and action can be told apart. A being that
+        # says "I'm going to the tree" without emitting the tag stands still,
+        # and the transcript alone would read as if it had gone.
+        for being, state in sorted(data.get("doing", {}).items()):
+            now = (state["action"], state["emotion"], state["gaze"])
+            if doing.get(being) != now:
+                if being in doing:
+                    bits = [state["action"]]
+                    if state["emotion"]:
+                        bits.append(state["emotion"])
+                    if state["gaze"]:
+                        bits.append(f"looking at {state['gaze']}")
+                    print(f"     {'':8} {being:<8} ({', '.join(bits)})")
+                doing[being] = now
 
         for being, message in sorted(data.get("trouble", {}).items()):
             if trouble.get(being) != message:

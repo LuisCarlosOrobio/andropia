@@ -374,3 +374,32 @@ def test_transcript_reports_trouble_alongside_speech():
         assert client.get("/api/transcript").json()["trouble"] == {
             "ava": "no credential"
         }
+
+
+def test_transcript_reports_what_beings_are_doing_not_just_saying():
+    """The characteristic failure of an action protocol.
+
+    Tags are stripped before a line reaches the transcript, so speech alone
+    cannot distinguish a being that said "I'm going to the tree" and emitted
+    [goto:tree] from one that narrated the move and stood still.
+    """
+    from andropia.runtime import session as sess
+    from andropia.sim.types import Emote, Goto
+
+    app = create_app(demo_world())
+    with TestClient(app) as client:
+        hub = app.state.hub
+        hub.session = sess.propose(
+            hub.session,
+            Goto(entity="mistral", target="tree"),
+            Emote(entity="ava", emotion="surprised"),
+        )
+        hub.session = sess.tick(hub.session)
+
+        doing = client.get("/api/transcript").json()["doing"]
+        assert doing["mistral"]["action"] == "walk"
+        assert doing["ava"]["action"] == "idle"
+        assert doing["ava"]["emotion"] == "surprised"
+        # A neutral being reports no emotion rather than the word "neutral",
+        # so the tail prints only what is actually happening.
+        assert doing["claude"]["emotion"] is None

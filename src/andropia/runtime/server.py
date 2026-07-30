@@ -189,6 +189,19 @@ def create_app(
                 for u in world.transcript
                 if u.tick >= since
             ],
+            # What each being is *doing*, not just saying. Tags are stripped
+            # before a line reaches the transcript, so speech alone cannot
+            # distinguish a being that said "I'm going to the tree" and emitted
+            # [goto:tree] from one that narrated the move and stood still —
+            # which is the characteristic failure of an action protocol.
+            "doing": {
+                eid: {
+                    "action": ent.action.kind,
+                    "emotion": ent.emotion if ent.emotion_weight > 0 else None,
+                    "gaze": ent.gaze,
+                }
+                for eid, ent in sorted(world.entities.items())
+            },
             "trouble": dict(hub.cast.trouble) if hub.cast else {},
         }
 
