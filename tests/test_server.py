@@ -336,3 +336,41 @@ def test_a_malformed_intent_does_not_kill_the_view_socket(client):
         # Still alive and still advancing.
         ws.send_json({"type": "step"})
         assert ws.receive_json()["tick"] == 1
+
+
+def test_transcript_is_readable_and_tailable():
+    """The instrument for judging whether a cast actually converses.
+
+    The 3D view renders speech as a bubble that expires, which is right for
+    watching bodies and useless for reading a conversation back.
+    """
+    from andropia.runtime import session as sess
+    from andropia.sim.types import Speak
+
+    app = create_app(demo_world())
+    with TestClient(app) as client:
+        hub = app.state.hub
+        for who, said in (("ava", "Is that the pond?"), ("claude", "It is.")):
+            hub.session = sess.propose(hub.session, Speak(entity=who, text=said))
+            hub.session = sess.tick(hub.session)
+
+        whole = client.get("/api/transcript").json()
+        assert [line["speaker"] for line in whole["lines"]] == ["ava", "claude"]
+        assert whole["lines"][0]["text"] == "Is that the pond?"
+
+        # `since` lets a poller tail without re-reading what it has seen.
+        tail = client.get("/api/transcript?since=1").json()
+        assert [line["speaker"] for line in tail["lines"]] == ["claude"]
+
+
+def test_transcript_reports_trouble_alongside_speech():
+    """A being that cannot reach its model just stands there. An endpoint that
+    says who is talking has to say who cannot, or silence is unreadable."""
+    from andropia.beings.runner import Cast
+
+    app = create_app(demo_world(), cast=Cast())
+    with TestClient(app) as client:
+        app.state.hub.cast.trouble["ava"] = "no credential"
+        assert client.get("/api/transcript").json()["trouble"] == {
+            "ava": "no credential"
+        }

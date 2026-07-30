@@ -167,6 +167,31 @@ def create_app(
             "viewers": len(hub.viewers),
         }
 
+    @app.get("/api/transcript")
+    async def transcript(since: int = 0) -> dict[str, Any]:
+        """What has been said, for reading rather than rendering.
+
+        The 3D view shows speech as a bubble over a being's head, which is the
+        right thing for watching and the wrong thing for judging: bubbles
+        expire, and a being can walk out of frame mid-sentence. Evaluating
+        whether a cast of language models actually holds a conversation needs
+        the lines in a form you can scroll back through.
+
+        ``since`` filters by tick so a poller can tail without re-reading, and
+        also reports each being's trouble — an endpoint that says who is talking
+        should say who cannot.
+        """
+        world = hub.session.world
+        return {
+            "tick": world.tick,
+            "lines": [
+                {"tick": u.tick, "speaker": u.speaker, "text": u.text}
+                for u in world.transcript
+                if u.tick >= since
+            ],
+            "trouble": dict(hub.cast.trouble) if hub.cast else {},
+        }
+
     @app.post("/api/control/{command}")
     async def control(
         command: str, body: dict[str, Any] | None = None

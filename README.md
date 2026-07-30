@@ -43,6 +43,13 @@ make claude-check   # two live turns: key, credit, model, caching. ~1 cent.
 make dev
 ```
 
+Speech shows as a bubble over a being's head, which expires. To read the
+conversation back, tail it from a second terminal:
+
+```bash
+make transcript
+```
+
 Each being then perceives what is around it, decides what to say and do, and
 acts by writing inline tags in what it says:
 
@@ -88,7 +95,7 @@ replay reads the intent log and never calls a model: the run reproduces
 whatever the temperature was, and whether or not the endpoint still exists.
 
 ```bash
-make check   # 258 Python tests, 115 JS tests, none need a browser
+make check   # 262 Python tests, 115 JS tests, none need a browser
 ```
 
 ## Licence

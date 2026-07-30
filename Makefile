@@ -9,7 +9,7 @@ PYTHON ?= .venv/bin/python
 NPM    ?= npm
 
 .DEFAULT_GOAL := help
-.PHONY: help check test test-py test-js lint format format-check build dev clean install claude-check
+.PHONY: help check test test-py test-js lint format format-check build dev clean install claude-check transcript
 
 help: ## Show this help
 	@grep -hE '^[a-z][a-zA-Z_-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -40,6 +40,9 @@ format-check: ## Report where the tree differs from ruff format
 format: ## Apply formatting and safe fixes
 	$(PYTHON) -m ruff format src tests
 	$(PYTHON) -m ruff check --fix src tests
+
+transcript: ## Tail a running world's conversation (run in a second terminal)
+	$(PYTHON) scripts/transcript.py
 
 claude-check: ## One being, two live turns — checks key, credit, model, caching
 	$(PYTHON) scripts/claude_check.py
