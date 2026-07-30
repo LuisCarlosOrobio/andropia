@@ -96,17 +96,19 @@ export class Stage {
     for (const mark of scene.landmarks ?? []) this._landmark(mark)
   }
 
-  _landmark({ id, pos, description }) {
+  _landmark({ id, pos }) {
     if (this.landmarks.has(id)) return
 
     const group = new THREE.Group()
     group.position.set(pos[0], pos[1], pos[2])
 
-    // A nameplate and nothing else. The thing itself is drawn by the world
-    // pack — a cone pin used to stand in for it, which was right when a
-    // landmark was a point on a bare plane and is a second object over the
-    // same spot now that the pond is actually a pond.
-    const mark = makePlate(description || id)
+    // The id, not the description. Both are on the wire, and the description
+    // is a sentence written for a language model to read — "a broad shallow
+    // pond, still enough to hold the sky, cold at the ankle". Rendering that
+    // in world space put a paragraph over every feature and buried the scene
+    // under its own prose. A viewer can see that the pond is a pond; what it
+    // needs is the word a being would use for it.
+    const mark = makePlate(id, { tone: "place" })
     mark.position.y = this._clearanceAt(id)
     group.add(mark)
 
@@ -371,6 +373,11 @@ const SPEECH_WRAP = 34
 const PLATE_TONES = {
   name: { font: "600 30px ui-monospace, Menlo, monospace", fill: "#cfd6dd",
           back: "rgba(14,17,20,0.66)", pad: 12, line: 44 },
+  // Quieter than a being's name, and deliberately so: a place is scenery a
+  // viewer can already see, while a name is the only way to tell two bodies
+  // apart. Same size would make five labels compete with three people.
+  place: { font: "500 26px ui-monospace, Menlo, monospace", fill: "#9fb0a4",
+           back: "rgba(14,17,20,0.42)", pad: 10, line: 36 },
   speech: { font: "500 30px ui-sans-serif, system-ui, sans-serif", fill: "#f2f5f8",
             back: "rgba(20,26,32,0.86)", pad: 16, line: 40 },
 }

@@ -46,6 +46,14 @@ worlds/*
 !worlds/example/
 !worlds/meadow/
 
+# --- Demo media ---
+# Recordings are uploaded to GitHub's CDN by dragging them into a README edit,
+# which keeps them out of the repository entirely. A committed video is
+# permanent clone weight for something that will be re-recorded.
+*.mp4
+*.mov
+*.webm
+
 # --- Simulation artifacts ---
 snapshots/
 recordings/
