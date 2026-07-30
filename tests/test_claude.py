@@ -321,6 +321,35 @@ async def test_the_real_sdk_accepts_the_request_and_sends_the_right_thing():
     assert [m["role"] for m in body["messages"]] == ["user"]
 
 
+async def test_a_missing_credential_is_a_value_not_a_traceback():
+    """The most likely misconfiguration of all, and it escapes the API-error
+    handlers: the SDK raises TypeError, not an anthropic exception, when it
+    cannot resolve a credential. Without this it lands in the runner's catch-all
+    and presents as beings that silently never speak."""
+    import anthropic
+
+    reply = await claude.complete(
+        anthropic.AsyncAnthropic(api_key=None, auth_token=None),
+        MODEL,
+        messages_for(),
+    )
+    assert not reply.ok
+    assert "credential" in reply.error
+
+
+async def test_an_unrelated_type_error_still_raises():
+    # The guard is narrow on purpose — swallowing every TypeError would hide
+    # real bugs in prompt assembly behind a being that just goes quiet.
+    class Broken:
+        class messages:
+            @staticmethod
+            async def create(**kwargs):
+                raise TypeError("something else entirely")
+
+    with pytest.raises(TypeError):
+        await claude.complete(Broken(), MODEL, messages_for())
+
+
 # -- provider selection ----------------------------------------------------
 
 

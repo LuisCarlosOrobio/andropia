@@ -171,6 +171,14 @@ async def complete(client, model: Claude, messages: Sequence[Message]) -> Reply:
         return Reply(error=f"http {exc.status_code}: {exc}")
     except anthropic.APIConnectionError as exc:
         return Reply(error=f"unreachable: {exc}")
+    except TypeError as exc:
+        # The SDK raises TypeError, not an API error, when it cannot resolve a
+        # credential — so without this the most likely misconfiguration of all
+        # escapes the "failure is a value" contract, lands in the runner's
+        # catch-all, and presents as beings that silently never speak.
+        if "authentication" in str(exc).lower():
+            return Reply(error="no credential — set ANTHROPIC_API_KEY")
+        raise
 
     return _reply(response)
 

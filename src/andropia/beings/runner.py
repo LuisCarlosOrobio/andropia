@@ -257,8 +257,17 @@ async def _turn(
     try:
         intents, error = await think(world, mind)
         if error:
+            # Printed only when it changes. A being whose endpoint is down
+            # fails every turn, and a line every second and a half would bury
+            # the world's own output — but saying nothing at all is worse,
+            # because the symptom is a being that stands there mutely and the
+            # cause is invisible.
+            if cast.trouble.get(mind.entity) != error:
+                print(f"[andropia] {mind.entity}: {error}")
             cast.trouble[mind.entity] = error
         else:
+            if mind.entity in cast.trouble:
+                print(f"[andropia] {mind.entity}: recovered")
             cast.trouble.pop(mind.entity, None)
         if intents:
             propose(intents)
