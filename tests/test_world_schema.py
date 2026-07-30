@@ -39,6 +39,48 @@ def a_feature(**over):
     return {**base, **over}
 
 
+# -- the checks are pure, which is the point -------------------------------
+
+
+def test_every_check_answers_for_itself_alone():
+    """The reason validation was rewritten.
+
+    The first draft threaded a mutable error list into every helper, so no
+    check could be called without first constructing an accumulator, and none
+    could be tested in isolation. Each is now a pure function from its input to
+    (value, errors) — which is this project's idiom everywhere else, and the
+    thing that makes a validator readable.
+    """
+    assert schema._colour("#AABBCC", "x") == ("#aabbcc", ())
+    assert schema._flag(True, "x") == (True, ())
+    assert schema._number(3, "x", low=0.0) == (3.0, ())
+    assert schema._position([1, 2, 3], "x") == ((1.0, 2.0, 3.0), ())
+
+    value, errors = schema._colour("green", "ground.colour")
+    assert value == "#000000" and len(errors) == 1
+    assert errors[0].field == "ground.colour"
+
+
+def test_a_check_returns_a_usable_value_even_when_it_fails():
+    """So the rest of validation continues and reports everything at once,
+    rather than stopping at the first bad field."""
+    for value, errors in (
+        schema._number("wide", "x", low=1.0),
+        schema._flag("yes", "x"),
+        schema._position("over there", "x"),
+        schema._one_of("pyramid", schema.SHAPES, "x", "shape"),
+    ):
+        assert errors
+        assert value is not None
+
+
+def test_checking_the_same_input_twice_gives_the_same_answer():
+    # No shared state to accumulate into, so there is nothing to carry over.
+    once = schema.validate(a_manifest(features=[a_feature(shape="pyramid")]))
+    twice = schema.validate(a_manifest(features=[a_feature(shape="pyramid")]))
+    assert [str(e) for e in once.errors] == [str(e) for e in twice.errors]
+
+
 # -- the example pack ------------------------------------------------------
 
 

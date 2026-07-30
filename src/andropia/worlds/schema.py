@@ -175,44 +175,57 @@ Result = Valid | Invalid
 # --------------------------------------------------------------------------
 # validation
 # --------------------------------------------------------------------------
+#
+# Every check below is a pure function from its input to ``(value, errors)``.
+#
+# The first draft threaded a mutable error list into each helper — the caller
+# passed a list and every helper appended to it. That is the shape the avatar
+# schema uses, and it is an out-parameter: shared mutable state, helpers that
+# cannot be called without constructing an accumulator, and no way to test one
+# check in isolation.
+#
+# It is also not this project's idiom. ``rng.next_u64(state) -> (value, state)``
+# and ``protocol.feed(carry, chunk) -> (events, carry)`` both return their carry
+# rather than mutating one. Validation errors are simpler still: they are
+# independent rather than sequential, so they need no threading at all — only
+# concatenation. Each check answers for its own field and knows nothing about
+# any other.
+
+#: One check's result: the value to use, and whatever was wrong with it.
+Checked = tuple[Any, tuple[WorldError, ...]]
+
+NO_ERRORS: tuple[WorldError, ...] = ()
 
 
 def validate(raw: Any) -> Result:
-    """Check a world manifest. Pure, and total: every problem at once."""
+    """Check a world manifest. Pure, and total: every problem at once.
+
+    Reads as a list of independent questions about the manifest, because that
+    is what it is. An author who fixes one field, re-runs, and meets the next
+    has been failed by the validator.
+    """
     if not isinstance(raw, dict):
         return Invalid((WorldError("<root>", "manifest must be a JSON object"),))
 
-    errors: list[WorldError] = []
-    warnings: list[str] = []
+    licence, licence_errors = _license(raw.get("license"))
+    ground, ground_errors = _ground(raw.get("ground", {}))
+    sky, sky_errors = _sky(raw.get("sky", {}))
+    light, light_errors = _light(raw.get("light", {}))
+    features, feature_errors, warnings = _features(raw.get("features", []))
+    atmosphere, atmosphere_errors = _atmosphere(raw.get("atmosphere", ""))
 
-    version = raw.get("schema")
-    if version != SCHEMA_VERSION:
-        errors.append(
-            WorldError(
-                "schema",
-                f"expected {SCHEMA_VERSION}, got {version!r}",
-                f"this build reads schema {SCHEMA_VERSION} world packs",
-            )
-        )
-
-    for key in ("id", "name"):
-        value = raw.get(key)
-        if not isinstance(value, str) or not value.strip():
-            errors.append(WorldError(key, "required, must be a non-empty string"))
-
-    licence = _license(raw, errors)
-    ground = _ground(raw.get("ground", {}), errors)
-    sky = _sky(raw.get("sky", {}), errors)
-    light = _light(raw.get("light", {}), errors)
-    features = _features(raw.get("features", []), errors, warnings)
-
-    atmosphere = raw.get("atmosphere", "")
-    if not isinstance(atmosphere, str):
-        errors.append(WorldError("atmosphere", "must be a string"))
-        atmosphere = ""
-
+    errors = (
+        *_version(raw.get("schema")),
+        *_identity(raw),
+        *licence_errors,
+        *ground_errors,
+        *sky_errors,
+        *light_errors,
+        *feature_errors,
+        *atmosphere_errors,
+    )
     if errors:
-        return Invalid(tuple(errors))
+        return Invalid(errors)
 
     return Valid(
         WorldPack(
@@ -223,232 +236,354 @@ def validate(raw: Any) -> Result:
             sky=sky,
             light=light,
             features=features,
-            atmosphere=atmosphere.strip(),
+            atmosphere=atmosphere,
         ),
-        tuple(warnings),
+        warnings,
     )
 
 
 # --------------------------------------------------------------------------
-# internals
+# the manifest, field by field
 # --------------------------------------------------------------------------
 
 
-def _license(raw: dict, errors: list[WorldError]) -> License:
+def _version(raw: Any) -> tuple[WorldError, ...]:
+    if raw == SCHEMA_VERSION:
+        return NO_ERRORS
+    return (
+        WorldError(
+            "schema",
+            f"expected {SCHEMA_VERSION}, got {raw!r}",
+            f"this build reads schema {SCHEMA_VERSION} world packs",
+        ),
+    )
+
+
+def _identity(raw: dict) -> tuple[WorldError, ...]:
+    return tuple(
+        WorldError(key, "required, must be a non-empty string")
+        for key in ("id", "name")
+        if not _named(raw.get(key))
+    )
+
+
+def _atmosphere(raw: Any) -> tuple[str, tuple[WorldError, ...]]:
+    if not isinstance(raw, str):
+        return "", (WorldError("atmosphere", "must be a string"),)
+    return raw.strip(), NO_ERRORS
+
+
+def _license(raw: Any) -> tuple[License, tuple[WorldError, ...]]:
     """A licence is required, for the same reason it is on an avatar pack:
-    every time provenance was optional, something turned out to contradict its
-    own label."""
-    block = raw.get("license")
-    if not isinstance(block, dict):
-        errors.append(
+    every time provenance was optional here, something turned out to
+    contradict its own label."""
+    if not isinstance(raw, dict):
+        return License(id=""), (
             WorldError(
                 "license",
                 "required",
                 'every pack must declare its terms, e.g. {"id": "CC0-1.0"}',
-            )
+            ),
         )
-        return License(id="")
 
-    ident = block.get("id")
-    if not isinstance(ident, str) or not ident.strip():
-        errors.append(WorldError("license.id", "required, must be a non-empty string"))
-        ident = ""
+    ident = raw.get("id")
+    if not _named(ident):
+        return License(id=""), (
+            WorldError("license.id", "required, must be a non-empty string"),
+        )
 
-    return License(
-        id=ident,
-        url=_text(block.get("url", "")),
-        attribution=_text(block.get("attribution", "")),
-        notice=_text(block.get("notice", "")),
-    )
-
-
-def _ground(raw: Any, errors: list[WorldError]) -> Ground:
-    if not isinstance(raw, dict):
-        errors.append(WorldError("ground", "must be an object"))
-        return Ground()
-
-    extent = _number(raw.get("extent", 200.0), "ground.extent", errors, low=1.0)
-    return Ground(
-        colour=_colour(raw.get("colour", "#151a1f"), "ground.colour", errors),
-        extent=extent,
-        grid=_flag(raw.get("grid", True), "ground.grid", errors),
-        description=_text(raw.get("description", "level ground")) or "level ground",
-    )
-
-
-def _sky(raw: Any, errors: list[WorldError]) -> Sky:
-    if not isinstance(raw, dict):
-        errors.append(WorldError("sky", "must be an object"))
-        return Sky()
-
-    fog = raw.get("fog")
-    near_far: tuple[float, float] | None = None
-    if fog is not None:
-        if (
-            not isinstance(fog, list | tuple)
-            or len(fog) != 2
-            or not all(isinstance(v, int | float) for v in fog)
-        ):
-            errors.append(
-                WorldError("sky.fog", "must be [near, far]", "or omit it for no fog")
-            )
-        elif fog[0] >= fog[1]:
-            errors.append(
-                WorldError("sky.fog", f"near {fog[0]} is not before far {fog[1]}")
-            )
-        else:
-            near_far = (float(fog[0]), float(fog[1]))
-
-    return Sky(
-        colour=_colour(raw.get("colour", "#0e1114"), "sky.colour", errors),
-        fog=near_far,
-        description=_text(raw.get("description", "an empty dark sky"))
-        or "an empty dark sky",
-    )
-
-
-def _light(raw: Any, errors: list[WorldError]) -> Light:
-    if not isinstance(raw, dict):
-        errors.append(WorldError("light", "must be an object"))
-        return Light()
-
-    return Light(
-        key=_number(raw.get("key", 2.0), "light.key", errors, low=0.0),
-        sky_colour=_colour(
-            raw.get("sky_colour", "#9fb8cc"), "light.sky_colour", errors
+    return (
+        License(
+            id=ident,
+            url=_text(raw.get("url")),
+            attribution=_text(raw.get("attribution")),
+            notice=_text(raw.get("notice")),
         ),
-        ground_colour=_colour(
-            raw.get("ground_colour", "#1a1f24"), "light.ground_colour", errors
-        ),
+        NO_ERRORS,
     )
+
+
+def _ground(raw: Any) -> tuple[Ground, tuple[WorldError, ...]]:
+    if not isinstance(raw, dict):
+        return Ground(), (WorldError("ground", "must be an object"),)
+
+    colour, bad_colour = _colour(raw.get("colour", "#151a1f"), "ground.colour")
+    extent, bad_extent = _number(raw.get("extent", 200.0), "ground.extent", low=1.0)
+    grid, bad_grid = _flag(raw.get("grid", True), "ground.grid")
+
+    return (
+        Ground(
+            colour=colour,
+            extent=extent,
+            grid=grid,
+            description=_text(raw.get("description")) or "level ground",
+        ),
+        (*bad_colour, *bad_extent, *bad_grid),
+    )
+
+
+def _sky(raw: Any) -> tuple[Sky, tuple[WorldError, ...]]:
+    if not isinstance(raw, dict):
+        return Sky(), (WorldError("sky", "must be an object"),)
+
+    colour, bad_colour = _colour(raw.get("colour", "#0e1114"), "sky.colour")
+    fog, bad_fog = _fog(raw.get("fog"))
+
+    return (
+        Sky(
+            colour=colour,
+            fog=fog,
+            description=_text(raw.get("description")) or "an empty dark sky",
+        ),
+        (*bad_colour, *bad_fog),
+    )
+
+
+def _fog(raw: Any) -> tuple[tuple[float, float] | None, tuple[WorldError, ...]]:
+    if raw is None:
+        return None, NO_ERRORS
+    if not _pair(raw):
+        return None, (
+            WorldError("sky.fog", "must be [near, far]", "or omit it for no fog"),
+        )
+    near, far = float(raw[0]), float(raw[1])
+    if near >= far:
+        return None, (
+            WorldError("sky.fog", f"near {near} is not before far {far}"),
+        )
+    return (near, far), NO_ERRORS
+
+
+def _light(raw: Any) -> tuple[Light, tuple[WorldError, ...]]:
+    if not isinstance(raw, dict):
+        return Light(), (WorldError("light", "must be an object"),)
+
+    key, bad_key = _number(raw.get("key", 2.0), "light.key", low=0.0)
+    sky, bad_sky = _colour(raw.get("sky_colour", "#9fb8cc"), "light.sky_colour")
+    ground, bad_ground = _colour(
+        raw.get("ground_colour", "#1a1f24"), "light.ground_colour"
+    )
+
+    return (
+        Light(key=key, sky_colour=sky, ground_colour=ground),
+        (*bad_key, *bad_sky, *bad_ground),
+    )
+
+
+# --------------------------------------------------------------------------
+# features
+# --------------------------------------------------------------------------
 
 
 def _features(
-    raw: Any, errors: list[WorldError], warnings: list[str]
-) -> tuple[Feature, ...]:
+    raw: Any,
+) -> tuple[tuple[Feature, ...], tuple[WorldError, ...], tuple[str, ...]]:
+    """Validate each feature independently, then the one thing that is not
+    independent: whether any two share a name."""
     if not isinstance(raw, list):
-        errors.append(WorldError("features", "must be a list"))
-        return ()
+        return (), (WorldError("features", "must be a list"),), ()
 
-    out: list[Feature] = []
+    checked = [_feature(item, f"features[{i}]") for i, item in enumerate(raw)]
+
+    features = tuple(f for f, _, _ in checked)
+    errors = tuple(e for _, errs, _ in checked for e in errs)
+    warnings = tuple(w for _, _, warns in checked for w in warns)
+
+    return features, (*errors, *_unique(features)), warnings
+
+
+def _unique(features: tuple[Feature, ...]) -> tuple[WorldError, ...]:
+    """The only cross-feature rule: a being names a place by its id and has no
+    way to disambiguate two of them."""
     seen: set[str] = set()
+    clashes: list[WorldError] = []
 
-    for index, item in enumerate(raw):
-        where = f"features[{index}]"
-        if not isinstance(item, dict):
-            errors.append(WorldError(where, "must be an object"))
-            continue
-
-        ident = item.get("id")
-        if not isinstance(ident, str) or not ident.strip():
-            errors.append(
-                WorldError(f"{where}.id", "required, must be a non-empty string")
-            )
-            ident = ""
-        elif not ident.replace("_", "").replace("-", "").isalnum():
-            # A feature id is also the word a being types into [goto:...], so
-            # it has to survive the tag grammar or the place is unreachable.
-            errors.append(
+    for index, feature in enumerate(features):
+        if feature.id and feature.id in seen:
+            clashes.append(
                 WorldError(
-                    f"{where}.id",
-                    f"{ident!r} is not usable in a tag",
-                    "letters, digits, hyphen and underscore only — a being "
-                    "refers to this place by writing [goto:<id>]",
-                )
-            )
-        elif ident in seen:
-            errors.append(
-                WorldError(
-                    f"{where}.id",
-                    f"{ident!r} appears more than once",
+                    f"features[{index}].id",
+                    f"{feature.id!r} appears more than once",
                     "a being names a place by its id and cannot disambiguate two",
                 )
             )
-        else:
-            seen.add(ident)
+        seen.add(feature.id)
 
-        shape = item.get("shape")
-        if shape not in SHAPES:
-            errors.append(
-                WorldError(f"{where}.shape", f"unknown shape {shape!r}", _found(SHAPES))
-            )
+    return tuple(clashes)
 
-        material = item.get("material")
-        if material not in MATERIALS:
-            errors.append(
-                WorldError(
-                    f"{where}.material",
-                    f"unknown material {material!r}",
-                    _found(MATERIALS),
-                )
-            )
 
-        description = item.get("description")
-        if not isinstance(description, str) or not description.strip():
-            errors.append(
-                WorldError(
-                    f"{where}.description",
-                    "required, must be a non-empty string",
-                    "this is what a being is told when it looks at the place",
-                )
-            )
-            description = ""
+def _feature(
+    raw: Any, where: str
+) -> tuple[Feature, tuple[WorldError, ...], tuple[str, ...]]:
+    if not isinstance(raw, dict):
+        return _placeholder(), (WorldError(where, "must be an object"),), ()
 
-        pos = _position(item.get("pos"), f"{where}.pos", errors)
+    ident, bad_id = _feature_id(raw.get("id"), f"{where}.id")
+    shape, bad_shape = _one_of(raw.get("shape"), SHAPES, f"{where}.shape", "shape")
+    material, bad_material = _one_of(
+        raw.get("material"), MATERIALS, f"{where}.material", "material"
+    )
+    described, bad_description = _description(raw.get("description"), where)
+    pos, bad_pos = _position(raw.get("pos"), f"{where}.pos")
+    colour, bad_colour = _colour(raw.get("colour", "#3a444e"), f"{where}.colour")
+    radius, bad_radius = _number(raw.get("radius", 1.0), f"{where}.radius", low=0.0)
+    height, bad_height = _number(raw.get("height", 1.0), f"{where}.height", low=0.0)
+    enterable, bad_enterable = _flag(raw.get("enterable", False), f"{where}.enterable")
 
-        enterable = _flag(item.get("enterable", False), f"{where}.enterable", errors)
-        if enterable and material not in ("water", "grass", "sand", "earth"):
-            warnings.append(
-                f"{where}: {material!r} is declared enterable, which beings will "
-                f"be told they can walk into"
-            )
-
-        out.append(
-            Feature(
-                id=ident,
-                pos=pos,
-                shape=shape if shape in SHAPES else SHAPES[0],
-                description=description.strip(),
-                material=material if material in MATERIALS else MATERIALS[0],
-                colour=_colour(
-                    item.get("colour", "#3a444e"), f"{where}.colour", errors
-                ),
-                radius=_number(
-                    item.get("radius", 1.0), f"{where}.radius", errors, low=0.0
-                ),
-                height=_number(
-                    item.get("height", 1.0), f"{where}.height", errors, low=0.0
-                ),
-                enterable=enterable,
-            )
+    # Strange rather than invalid: a pack may mean it, and refusing a coherent
+    # world over an odd declaration would be the wrong trade.
+    warnings = (
+        (
+            f"{where}: {material!r} is declared enterable, which beings will be "
+            f"told they can walk into",
         )
+        if enterable and material not in _WALKABLE
+        else ()
+    )
 
-    return tuple(out)
+    return (
+        Feature(
+            id=ident,
+            pos=pos,
+            shape=shape,
+            description=described,
+            material=material,
+            colour=colour,
+            radius=radius,
+            height=height,
+            enterable=enterable,
+        ),
+        (
+            *bad_id,
+            *bad_shape,
+            *bad_material,
+            *bad_description,
+            *bad_pos,
+            *bad_colour,
+            *bad_radius,
+            *bad_height,
+            *bad_enterable,
+        ),
+        warnings,
+    )
+
+
+#: Materials a being can be told it may walk into without the claim being odd.
+_WALKABLE = ("water", "grass", "sand", "earth")
+
+
+def _placeholder() -> Feature:
+    """Stand-in for a feature too malformed to read.
+
+    Returned alongside the error rather than omitted, so ``features[3]`` in a
+    later message still refers to the fourth entry the author wrote.
+    """
+    return Feature(
+        id="",
+        pos=(0.0, 0.0, 0.0),
+        shape=SHAPES[0],
+        description="",
+        material=MATERIALS[0],
+    )
+
+
+def _feature_id(raw: Any, where: str) -> tuple[str, tuple[WorldError, ...]]:
+    """A feature id is also the word a being types into ``[goto:...]``, so an id
+    the tag grammar cannot carry is a place nobody can reach — and nothing else
+    in the system would ever say so."""
+    if not _named(raw):
+        return "", (WorldError(where, "required, must be a non-empty string"),)
+    if not raw.replace("_", "").replace("-", "").isalnum():
+        return "", (
+            WorldError(
+                where,
+                f"{raw!r} is not usable in a tag",
+                "letters, digits, hyphen and underscore only — a being refers "
+                "to this place by writing [goto:<id>]",
+            ),
+        )
+    return raw, NO_ERRORS
+
+
+def _description(raw: Any, where: str) -> tuple[str, tuple[WorldError, ...]]:
+    if not _named(raw):
+        return "", (
+            WorldError(
+                f"{where}.description",
+                "required, must be a non-empty string",
+                "this is what a being is told when it looks at the place",
+            ),
+        )
+    return raw.strip(), NO_ERRORS
+
+
+# --------------------------------------------------------------------------
+# leaves
+# --------------------------------------------------------------------------
+
+
+def _one_of(
+    raw: Any, allowed: tuple[str, ...], where: str, kind: str
+) -> tuple[str, tuple[WorldError, ...]]:
+    if raw in allowed:
+        return raw, NO_ERRORS
+    return allowed[0], (
+        WorldError(
+            where, f"unknown {kind} {raw!r}", "available: " + ", ".join(allowed)
+        ),
+    )
 
 
 def _position(
-    raw: Any, where: str, errors: list[WorldError]
-) -> tuple[float, float, float]:
+    raw: Any, where: str
+) -> tuple[tuple[float, float, float], tuple[WorldError, ...]]:
     if (
         not isinstance(raw, list | tuple)
         or len(raw) != 3
-        or not all(isinstance(v, int | float) for v in raw)
+        or not all(_numeric(v) for v in raw)
     ):
-        errors.append(WorldError(where, "must be [x, y, z]"))
-        return (0.0, 0.0, 0.0)
-    return (float(raw[0]), float(raw[1]), float(raw[2]))
+        return (0.0, 0.0, 0.0), (WorldError(where, "must be [x, y, z]"),)
+    return (float(raw[0]), float(raw[1]), float(raw[2])), NO_ERRORS
 
 
-def _colour(raw: Any, where: str, errors: list[WorldError]) -> str:
+def _colour(raw: Any, where: str) -> tuple[str, tuple[WorldError, ...]]:
     """Hex only. A named colour would mean two lookup tables agreeing across
-    two languages, which is exactly the kind of seam this format exists to
-    remove."""
+    two languages, which is exactly the seam this format exists to remove."""
     if not isinstance(raw, str) or not _is_hex(raw):
-        errors.append(
-            WorldError(where, f"expected a hex colour, got {raw!r}", "e.g. #4a5f3a")
+        return "#000000", (
+            WorldError(where, f"expected a hex colour, got {raw!r}", "e.g. #4a5f3a"),
         )
-        return "#000000"
-    return raw.lower()
+    return raw.lower(), NO_ERRORS
+
+
+def _number(
+    raw: Any, where: str, *, low: float
+) -> tuple[float, tuple[WorldError, ...]]:
+    if not _numeric(raw):
+        return low, (WorldError(where, f"expected a number, got {raw!r}"),)
+    if raw < low:
+        return low, (WorldError(where, f"must be at least {low}, got {raw}"),)
+    return float(raw), NO_ERRORS
+
+
+def _flag(raw: Any, where: str) -> tuple[bool, tuple[WorldError, ...]]:
+    if not isinstance(raw, bool):
+        return False, (WorldError(where, f"expected true or false, got {raw!r}"),)
+    return raw, NO_ERRORS
+
+
+def _numeric(raw: Any) -> bool:
+    # `True` is an int in Python, and a radius of True would validate and then
+    # draw something a millimetre across.
+    return isinstance(raw, int | float) and not isinstance(raw, bool)
+
+
+def _pair(raw: Any) -> bool:
+    return (
+        isinstance(raw, list | tuple)
+        and len(raw) == 2
+        and all(_numeric(v) for v in raw)
+    )
 
 
 def _is_hex(value: str) -> bool:
@@ -459,26 +594,9 @@ def _is_hex(value: str) -> bool:
     )
 
 
-def _number(raw: Any, where: str, errors: list[WorldError], *, low: float) -> float:
-    if not isinstance(raw, int | float) or isinstance(raw, bool):
-        errors.append(WorldError(where, f"expected a number, got {raw!r}"))
-        return low
-    if raw < low:
-        errors.append(WorldError(where, f"must be at least {low}, got {raw}"))
-        return low
-    return float(raw)
-
-
-def _flag(raw: Any, where: str, errors: list[WorldError]) -> bool:
-    if not isinstance(raw, bool):
-        errors.append(WorldError(where, f"expected true or false, got {raw!r}"))
-        return False
-    return raw
+def _named(raw: Any) -> bool:
+    return isinstance(raw, str) and bool(raw.strip())
 
 
 def _text(raw: Any) -> str:
     return raw.strip() if isinstance(raw, str) else ""
-
-
-def _found(names: tuple[str, ...]) -> str:
-    return "available: " + ", ".join(names)
