@@ -264,6 +264,170 @@ async def test_a_bad_model_id_says_so():
     assert not reply.ok and "claude-opus-5" in reply.error
 
 
+# -- adapting to what a model accepts --------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _forget_learned_features():
+    """The learned-feature cache is process-wide, so tests must not leak into
+    each other — one test teaching it that a model rejects thinking would
+    silently change what every later test asserts."""
+    claude._UNSUPPORTED.clear()
+    yield
+    claude._UNSUPPORTED.clear()
+
+
+async def test_a_model_that_rejects_adaptive_thinking_is_retried_without_it():
+    """The bug that sent a real run into a wall of 400s.
+
+    Adaptive thinking and `effort` are the current Opus-tier shape; a model that
+    predates it returns a 400 rather than ignoring them. Recommending Haiku
+    without checking the request shape worked on it made every being fail
+    immediately, three times a second.
+    """
+    import anthropic
+    import httpx
+
+    calls: list[dict] = []
+
+    def handler(request):
+        import json
+
+        body = json.loads(request.content)
+        calls.append(body)
+        if "thinking" in body:
+            return httpx.Response(
+                400,
+                json={
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": "adaptive thinking is not supported on this model",
+                    },
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "old-model",
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "content": [{"type": "text", "text": "[happy]Hello."}],
+                "usage": {"input_tokens": 5, "output_tokens": 3},
+            },
+        )
+
+    client = anthropic.AsyncAnthropic(
+        api_key="sk-test",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    model = claude.Claude(name="old-model")
+
+    reply = await claude.complete(client, model, messages_for())
+    assert reply.ok, reply.error
+    assert reply.text == "[happy]Hello."
+
+    # Tried once with the feature, once without.
+    assert len(calls) == 2
+    assert "thinking" in calls[0]
+    assert "thinking" not in calls[1]
+
+
+async def test_what_a_model_rejects_is_remembered():
+    # Or every single turn pays for a failed request first.
+    import anthropic
+    import httpx
+
+    seen = []
+
+    def handler(request):
+        import json
+
+        body = json.loads(request.content)
+        seen.append("thinking" in body)
+        if "thinking" in body:
+            return httpx.Response(
+                400,
+                json={
+                    "type": "error",
+                    "error": {"type": "invalid_request_error", "message": "thinking no"},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "m",
+                "type": "message",
+                "role": "assistant",
+                "model": "old",
+                "stop_reason": "end_turn",
+                "stop_sequence": None,
+                "content": [{"type": "text", "text": "hi"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )
+
+    client = anthropic.AsyncAnthropic(
+        api_key="sk-test",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    model = claude.Claude(name="old")
+
+    await claude.complete(client, model, messages_for())
+    await claude.complete(client, model, messages_for())
+
+    # First turn probes and retries; the second knows better and asks once.
+    assert seen == [True, False, False]
+
+
+async def test_a_bad_request_that_names_no_parameter_is_not_retried():
+    """A malformed request must not become an infinite loop dressed as
+    resilience — only a 400 naming a parameter is worth another attempt."""
+    import anthropic
+    import httpx
+
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(
+            400,
+            json={
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "messages: at least one message is required",
+                },
+            },
+        )
+
+    client = anthropic.AsyncAnthropic(
+        api_key="sk-test",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    reply = await claude.complete(client, claude.Claude(name="x"), messages_for())
+
+    assert not reply.ok
+    assert len(calls) == 1
+
+
+def test_the_default_shape_asks_for_the_current_features():
+    shape = claude._shape(MODEL)
+    assert shape["thinking"] == {"type": "adaptive"}
+    assert shape["output_config"] == {"effort": "low"}
+
+
+def test_a_learned_rejection_drops_only_that_feature():
+    model = claude.Claude(name="partial")
+    claude._learn(model, "effort is not supported on this model")
+    shape = claude._shape(model)
+    assert "output_config" not in shape
+    assert "thinking" in shape  # untouched
+
+
 # -- what actually goes on the wire ----------------------------------------
 
 

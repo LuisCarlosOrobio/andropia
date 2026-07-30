@@ -131,6 +131,57 @@ def split(messages: Iterable[Message]) -> tuple[list[dict], list[dict]]:
     return system, chat
 
 
+#: Request features a given model turned out to reject, learned at runtime.
+#:
+#: Adaptive thinking and `effort` are the current Opus-tier shape, and asking
+#: for them on a model that predates it returns a 400 rather than being ignored.
+#: Hardcoding a table of which models support what would go stale every release
+#: — this project cannot know next year's models — so the adapter finds out from
+#: the API and remembers, per process.
+_UNSUPPORTED: dict[str, set[str]] = {}
+
+#: Substrings that identify a 400 as "this model does not take that parameter",
+#: as opposed to a request that is wrong in a way retrying will not fix.
+_FEATURE_HINTS = {
+    "thinking": ("thinking",),
+    "effort": ("effort", "output_config"),
+}
+
+
+def _shape(model: Claude) -> dict:
+    """The optional request fields this model is currently believed to accept."""
+    rejected = _UNSUPPORTED.get(model.name, frozenset())
+    shape: dict = {}
+    if "thinking" not in rejected:
+        # Adaptive rather than disabled: a leaked <thinking> tag here would be
+        # spoken aloud by an avatar. See the module docstring.
+        shape["thinking"] = {"type": "adaptive"}
+    if "effort" not in rejected:
+        shape["output_config"] = {"effort": model.effort}
+    return shape
+
+
+def _learn(model: Claude, message: str) -> bool:
+    """Note a feature the model rejected. True if there is now something to retry.
+
+    Only for a 400 that names a parameter. A 400 about anything else is a real
+    error and must not be retried, or a malformed request becomes an infinite
+    loop dressed as resilience.
+    """
+    lowered = message.lower()
+    rejected = _UNSUPPORTED.setdefault(model.name, set())
+    learned = False
+
+    for feature, hints in _FEATURE_HINTS.items():
+        if feature in rejected:
+            continue
+        if any(hint in lowered for hint in hints):
+            rejected.add(feature)
+            learned = True
+
+    return learned
+
+
 def brain(client, model: Claude) -> Brain:
     """A :data:`Brain` bound to one Claude model."""
 
@@ -150,37 +201,47 @@ async def complete(client, model: Claude, messages: Sequence[Message]) -> Reply:
 
     system, chat = split(messages)
 
-    try:
-        response = await client.messages.create(
-            model=model.name,
-            max_tokens=model.max_tokens,
-            system=system,
-            messages=chat,
-            # Adaptive rather than disabled: see the module docstring — a
-            # leaked <thinking> tag here would be spoken by an avatar.
-            thinking={"type": "adaptive"},
-            output_config={"effort": model.effort},
-            timeout=model.timeout,
-            **model.extra,
-        )
-    except anthropic.NotFoundError as exc:
-        return Reply(error=f"no such model {model.name!r}: {exc}")
-    except anthropic.RateLimitError as exc:
-        return Reply(error=f"rate limited: {exc}")
-    except anthropic.APIStatusError as exc:
-        return Reply(error=f"http {exc.status_code}: {exc}")
-    except anthropic.APIConnectionError as exc:
-        return Reply(error=f"unreachable: {exc}")
-    except TypeError as exc:
+    # Two attempts at most: the second only happens when the first failed by
+    # naming a parameter this model does not take, which is knowledge worth
+    # keeping rather than a failure worth reporting.
+    for attempt in (1, 2):
+        try:
+            response = await client.messages.create(
+                model=model.name,
+                max_tokens=model.max_tokens,
+                system=system,
+                messages=chat,
+                timeout=model.timeout,
+                **_shape(model),
+                **model.extra,
+            )
+        except anthropic.NotFoundError as exc:
+            return Reply(error=f"no such model {model.name!r}: {exc}")
+        except anthropic.RateLimitError as exc:
+            return Reply(error=f"rate limited: {exc}")
+        except anthropic.BadRequestError as exc:
+            if attempt == 1 and _learn(model, str(exc)):
+                dropped = ", ".join(sorted(_UNSUPPORTED[model.name]))
+                print(f"[andropia] {model.name} does not take {dropped}; retrying")
+                continue
+            return Reply(error=f"http {exc.status_code}: {exc}")
+        except anthropic.APIStatusError as exc:
+            return Reply(error=f"http {exc.status_code}: {exc}")
+        except anthropic.APIConnectionError as exc:
+            return Reply(error=f"unreachable: {exc}")
+        except TypeError as exc:
         # The SDK raises TypeError, not an API error, when it cannot resolve a
         # credential — so without this the most likely misconfiguration of all
         # escapes the "failure is a value" contract, lands in the runner's
         # catch-all, and presents as beings that silently never speak.
-        if "authentication" in str(exc).lower():
-            return Reply(error="no credential — set ANTHROPIC_API_KEY")
-        raise
+            if "authentication" in str(exc).lower():
+                return Reply(error="no credential — set ANTHROPIC_API_KEY")
+            raise
 
-    return _reply(response)
+        return _reply(response)
+
+    # Unreachable: the loop either returns or continues exactly once.
+    return Reply(error="exhausted retries")
 
 
 def _reply(response) -> Reply:
