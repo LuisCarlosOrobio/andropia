@@ -13,6 +13,19 @@ from fastapi.testclient import TestClient
 from andropia.runtime.server import create_app, demo_world
 
 
+def whoever(world=None, n=0):
+    """The nth being in the demo world, by id.
+
+    Named positionally because the cast is drawn from a seed rather than
+    written — a test that hardcodes `ava` breaks the moment the seed changes,
+    which is exactly the coupling drawing identities was meant to remove.
+    """
+    return sorted((world or demo_world()).entities)[n]
+
+
+A, B, C = (whoever(n=i) for i in range(3))
+
+
 @pytest.fixture
 def client():
     with TestClient(create_app(demo_world())) as c:
@@ -66,7 +79,7 @@ def test_unknown_command_is_404(client):
 
 
 def test_goto_intent_is_queued_then_applied(client):
-    r = client.post("/api/intent", json={"kind": "goto", "entity": "ava", "target": "pond"})
+    r = client.post("/api/intent", json={"kind": "goto", "entity": A, "target": "pond"})
     assert r.json()["queued"] == 1
 
     client.post("/api/control/step")
@@ -75,14 +88,14 @@ def test_goto_intent_is_queued_then_applied(client):
         ws.receive_json()  # scene
         frame = ws.receive_json()
 
-    ava = next(e for e in frame["entities"] if e["id"] == "ava")
+    ava = next(e for e in frame["entities"] if e["id"] == A)
     assert ava["action"] == "walk"
 
 
 def test_moveto_accepts_a_bare_position(client):
     """Clicking the ground sends coordinates, not a landmark name."""
     r = client.post(
-        "/api/intent", json={"kind": "moveto", "entity": "ava", "pos": [5.0, 0.0, 5.0]}
+        "/api/intent", json={"kind": "moveto", "entity": A, "pos": [5.0, 0.0, 5.0]}
     )
     assert r.status_code == 200
 
@@ -92,23 +105,23 @@ def test_moveto_accepts_a_bare_position(client):
         ws.receive_json()
         frame = ws.receive_json()
 
-    ava = next(e for e in frame["entities"] if e["id"] == "ava")
+    ava = next(e for e in frame["entities"] if e["id"] == A)
     assert ava["action"] == "walk"
     assert ava["target"] == [5.0, 0.0, 5.0]
 
 
 def test_malformed_position_is_rejected(client):
-    r = client.post("/api/intent", json={"kind": "moveto", "entity": "ava", "pos": "nope"})
+    r = client.post("/api/intent", json={"kind": "moveto", "entity": A, "pos": "nope"})
     assert r.status_code == 400
 
 
 def test_unknown_intent_kind_is_rejected(client):
-    r = client.post("/api/intent", json={"kind": "levitate", "entity": "ava"})
+    r = client.post("/api/intent", json={"kind": "levitate", "entity": A})
     assert r.status_code == 400
 
 
 def test_intent_with_missing_field_is_rejected(client):
-    r = client.post("/api/intent", json={"kind": "goto", "entity": "ava"})
+    r = client.post("/api/intent", json={"kind": "goto", "entity": A})
     assert r.status_code == 400
 
 
@@ -127,7 +140,7 @@ def test_connect_receives_scene_then_frame(client):
     assert scene["dt"] == 0.05
 
     assert frame["type"] == "frame"
-    assert {e["id"] for e in frame["entities"]} == {"ava", "mistral", "claude"}
+    assert {e["id"] for e in frame["entities"]} == {A, B, C}
 
 
 def test_scene_is_sent_once_not_per_tick(client):
@@ -159,12 +172,12 @@ def test_intent_over_the_view_socket(client):
         ws.receive_json()
 
         ws.send_json(
-            {"type": "intent", "intent": {"kind": "goto", "entity": "ava", "target": "tree"}}
+            {"type": "intent", "intent": {"kind": "goto", "entity": A, "target": "tree"}}
         )
         ws.send_json({"type": "step"})
         frame = ws.receive_json()
 
-    ava = next(e for e in frame["entities"] if e["id"] == "ava")
+    ava = next(e for e in frame["entities"] if e["id"] == A)
     assert ava["action"] == "walk"
 
 
@@ -210,13 +223,13 @@ def test_intents_proposed_between_ticks_are_not_lost(client):
     hub = client.app.state.hub
 
     # Interleave: propose, tick, propose, tick — as a live client would.
-    client.post("/api/intent", json={"kind": "goto", "entity": "ava", "target": "pond"})
+    client.post("/api/intent", json={"kind": "goto", "entity": A, "target": "pond"})
     client.post("/api/control/step")
-    client.post("/api/intent", json={"kind": "gesture", "entity": "mistral", "motion": "wave"})
+    client.post("/api/intent", json={"kind": "gesture", "entity": B, "motion": "wave"})
     client.post("/api/control/step")
 
-    assert hub.session.world.entities["ava"].action.kind == "walk"
-    assert hub.session.world.entities["mistral"].action.kind == "gesture"
+    assert hub.session.world.entities[A].action.kind == "walk"
+    assert hub.session.world.entities[B].action.kind == "gesture"
 
 
 def test_the_hub_is_the_single_owner_of_the_session(client):
@@ -310,7 +323,7 @@ def test_a_coordinate_sent_as_a_landmark_name_is_rejected(client):
     """
     r = client.post(
         "/api/intent",
-        json={"kind": "goto", "entity": "ava", "target": [1.0, 0.0, 2.0]},
+        json={"kind": "goto", "entity": A, "target": [1.0, 0.0, 2.0]},
     )
 
     assert r.status_code == 400
@@ -328,7 +341,7 @@ def test_a_malformed_intent_does_not_kill_the_view_socket(client):
         ws.receive_json()
 
         ws.send_json(
-            {"type": "intent", "intent": {"kind": "goto", "entity": "ava", "target": [1, 2, 3]}}
+            {"type": "intent", "intent": {"kind": "goto", "entity": A, "target": [1, 2, 3]}}
         )
         ws.send_json({"type": "intent", "intent": {"kind": "nonsense"}})
         ws.send_json({"type": "intent"})
@@ -350,17 +363,17 @@ def test_transcript_is_readable_and_tailable():
     app = create_app(demo_world())
     with TestClient(app) as client:
         hub = app.state.hub
-        for who, said in (("ava", "Is that the pond?"), ("claude", "It is.")):
+        for who, said in ((A, "Is that the pond?"), (B, "It is.")):
             hub.session = sess.propose(hub.session, Speak(entity=who, text=said))
             hub.session = sess.tick(hub.session)
 
         whole = client.get("/api/transcript").json()
-        assert [line["speaker"] for line in whole["lines"]] == ["ava", "claude"]
+        assert [line["speaker"] for line in whole["lines"]] == [A, B]
         assert whole["lines"][0]["text"] == "Is that the pond?"
 
         # `since` lets a poller tail without re-reading what it has seen.
         tail = client.get("/api/transcript?since=1").json()
-        assert [line["speaker"] for line in tail["lines"]] == ["claude"]
+        assert [line["speaker"] for line in tail["lines"]] == [B]
 
 
 def test_transcript_reports_trouble_alongside_speech():
@@ -370,9 +383,9 @@ def test_transcript_reports_trouble_alongside_speech():
 
     app = create_app(demo_world(), cast=Cast())
     with TestClient(app) as client:
-        app.state.hub.cast.trouble["ava"] = "no credential"
+        app.state.hub.cast.trouble[A] = "no credential"
         assert client.get("/api/transcript").json()["trouble"] == {
-            "ava": "no credential"
+            A: "no credential"
         }
 
 
@@ -391,18 +404,18 @@ def test_transcript_reports_what_beings_are_doing_not_just_saying():
         hub = app.state.hub
         hub.session = sess.propose(
             hub.session,
-            Goto(entity="mistral", target="tree"),
-            Emote(entity="ava", emotion="surprised"),
+            Goto(entity=B, target="tree"),
+            Emote(entity=A, emotion="surprised"),
         )
         hub.session = sess.tick(hub.session)
 
         doing = client.get("/api/transcript").json()["doing"]
-        assert doing["mistral"]["action"] == "walk"
-        assert doing["ava"]["action"] == "idle"
-        assert doing["ava"]["emotion"] == "surprised"
+        assert doing[B]["action"] == "walk"
+        assert doing[A]["action"] == "idle"
+        assert doing[A]["emotion"] == "surprised"
         # A neutral being reports no emotion rather than the word "neutral",
         # so the tail prints only what is actually happening.
-        assert doing["claude"]["emotion"] is None
+        assert doing[C]["emotion"] is None
 
 
 def test_transcript_names_which_driver_is_speaking():

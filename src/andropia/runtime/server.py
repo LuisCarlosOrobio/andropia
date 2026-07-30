@@ -492,55 +492,55 @@ async def _broadcast(hub: Hub) -> None:
         hub.viewers.discard(ws)
 
 
-#: Starting personalities for the demo world.
+#: Seed for the demo cast. A number rather than three written personas: same
+#: seed, same three people, and a different number is a different world with
+#: different inhabitants. See :mod:`andropia.identity`.
+DEMO_SEED = 20260729
+
+#: What the demo world is actually like, which is: nothing much.
 #:
-#: Short on purpose. A persona is a nudge, not a script — a paragraph of
-#: instructions produces a being that recites its brief, whereas a line or two
-#: of disposition produces one that behaves. Different enough from each other
-#: that a conversation between them has somewhere to go.
-PERSONAS = {
-    "ava": (
-        "You are quiet and watchful, and you notice things before you mention "
-        "them. You like water and open space. You would rather ask than "
-        "explain."
-    ),
-    "mistral": (
-        "You are restless and direct. You would rather be walking somewhere "
-        "than standing still, and you say what you think without much "
-        "padding."
-    ),
-    "claude": (
-        "You are curious to a fault and easily delighted by small details. You "
-        "get interested in whatever is nearest and follow it further than "
-        "anyone asked."
-    ),
-}
+#: Written honestly on purpose. Beings given the names of things and nothing
+#: about the place invent one — three of them once spent two minutes reporting
+#: the falling water level of a pond that is a point on a flat plane. The
+#: renderer draws a grid on a dark ground and no sky, so that is what this says.
+#:
+#: This is the half of a world pack that describes; the renderer's scene is the
+#: half that draws. They are two strings apart today and must become one
+#: declaration, for exactly the reason avatar packs are one: two sources of
+#: truth about one world will disagree, and the disagreement surfaces as beings
+#: describing scenery that is not there.
+DEMO_SETTING = (
+    "A bare, level expanse of ground under an empty dark sky. No water, no "
+    "plants, no weather, no sound but each other. A faint grid is visible "
+    "underfoot. Three landmarks have been placed here and named, and apart from "
+    "those and each other, there is nothing to see. Nothing has been built here "
+    "yet — it is a space waiting for a world, and saying so plainly is more "
+    "use to you than pretending otherwise."
+)
 
 
 def demo_world() -> World:
     """A small world to look at, for `python -m andropia.runtime.server`."""
+    from ..identity import cast as draw_cast
     from ..sim import Entity, Landmark, Vec3
+    from ..sim import rng as prng
+
+    people, _ = draw_cast(prng.seed(DEMO_SEED), 3)
+    # One VRM and two glTF bodies, assigned in draw order rather than by name —
+    # the identity no longer knows or cares which model answers for it.
+    packs = ("ava", "robot", "robot")
+    places = (Vec3(0.0, 0.0, 0.0), Vec3(4.0, 0.0, 2.0), Vec3(-3.0, 0.0, 3.0))
 
     return World(
+        setting=DEMO_SETTING,
         entities={
-            "ava": Entity(
-                id="ava",
-                pos=Vec3(0.0, 0.0, 0.0),
-                avatar_pack="ava",
-                persona=PERSONAS["ava"],
-            ),
-            "mistral": Entity(
-                id="mistral",
-                pos=Vec3(4.0, 0.0, 2.0),
-                avatar_pack="robot",
-                persona=PERSONAS["mistral"],
-            ),
-            "claude": Entity(
-                id="claude",
-                pos=Vec3(-3.0, 0.0, 3.0),
-                avatar_pack="robot",
-                persona=PERSONAS["claude"],
-            ),
+            who.name: Entity(
+                id=who.name,
+                pos=pos,
+                avatar_pack=pack,
+                persona=who.persona,
+            )
+            for who, pack, pos in zip(people, packs, places, strict=True)
         },
         landmarks={
             "tree": Landmark("tree", Vec3(12.0, 0.0, -4.0), "the old tree"),

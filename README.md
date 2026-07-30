@@ -18,7 +18,8 @@ serves `frontend/dist`, so running it directly shows you whatever was built
 last — or nothing at all on a fresh clone.
 
 Three beings in a world, walking to landmarks, gesturing, changing
-expression and speaking.
+expression and speaking. Their names and personalities are drawn from a seed —
+same seed, same three people — so a world is populated rather than authored.
 
 By default they run on a deterministic autopilot, so the whole pipeline works
 with no model to hand. To let language models drive them instead, either point
@@ -95,7 +96,7 @@ replay reads the intent log and never calls a model: the run reproduces
 whatever the temperature was, and whether or not the endpoint still exists.
 
 ```bash
-make check   # 296 Python tests, 115 JS tests, none need a browser
+make check   # 309 Python tests, 115 JS tests, none need a browser
 ```
 
 ## Licence

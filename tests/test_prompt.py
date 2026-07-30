@@ -91,11 +91,42 @@ def test_the_stable_prefix_does_not_change_when_the_situation_does():
         assert other[-1] != still[-1]  # and the volatile part really did move
 
 
-def test_rules_come_before_identity_and_identity_before_the_situation():
+def test_the_prompt_is_ordered_place_then_person_then_situation():
     msgs = messages_for(a_world())
     assert msgs[0].content == pr.RULES
-    assert "Your name is ava" in msgs[1].content
+    assert msgs[1].content.startswith("Where you are:")
+    assert "Your name is ava" in msgs[2].content
     assert msgs[-1].role == "user"
+
+
+def test_an_empty_setting_is_stated_rather_than_skipped():
+    """A being told nothing about the place invents one.
+
+    Three of them once spent two minutes reporting the falling water level of a
+    pond that is a point on a flat plane. "There is nothing here" is a fact
+    about the world, and beings should have it.
+    """
+    where = messages_for(a_world())[1].content
+    assert "Nothing has been built here yet" in where
+    assert "Do not invent" in where
+
+
+def test_a_declared_setting_replaces_the_empty_one():
+    from dataclasses import replace
+
+    world = replace(a_world(), setting="A wet green meadow under a blue sky.")
+    where = messages_for(world)[1].content
+    assert "A wet green meadow" in where
+    assert "Nothing has been built" not in where
+
+
+def test_the_setting_extends_the_prefix_every_being_shares():
+    # Identical for all of them, so it belongs before identity — otherwise each
+    # being starts its own cached prefix one message earlier.
+    world = a_world()
+    mine = messages_for(world, "ava")
+    theirs = pr.messages(world.entities["bob"], per.observe(world, "bob"))
+    assert mine[:2] == theirs[:2]
 
 
 def test_rules_are_identical_for_every_being():
@@ -112,8 +143,8 @@ def test_memory_only_grows_at_the_end():
     early = (Memory(tick=1, text="first"),)
     later = early + (Memory(tick=2, text="second"),)
 
-    a = messages_for(a_world(memory=early))[2].content
-    b = messages_for(a_world(memory=later))[2].content
+    a = messages_for(a_world(memory=early))[3].content
+    b = messages_for(a_world(memory=later))[3].content
     assert b.startswith(a)
 
 
@@ -121,24 +152,24 @@ def test_memory_only_grows_at_the_end():
 
 
 def test_persona_is_carried_into_the_prompt():
-    assert "You are curious." in messages_for(a_world())[1].content
+    assert "You are curious." in messages_for(a_world())[2].content
 
 
 def test_a_being_with_no_persona_still_gets_a_usable_prompt():
     world = World(entities={"ava": Entity(id="ava")})
     msgs = pr.messages(world.entities["ava"], per.observe(world, "ava"))
-    assert "Your name is ava" in msgs[1].content
+    assert "Your name is ava" in msgs[2].content
     assert msgs[0].content == pr.RULES
 
 
 def test_no_memory_means_no_recollection_message():
-    assert len(messages_for(a_world())) == 3
-    assert len(messages_for(a_world(memory=(Memory(tick=1, text="x"),)))) == 4
+    assert len(messages_for(a_world())) == 4
+    assert len(messages_for(a_world(memory=(Memory(tick=1, text="x"),)))) == 5
 
 
 def test_recollection_is_budgeted():
     many = tuple(Memory(tick=i, text=f"thing {i}") for i in range(50))
-    recalled = messages_for(a_world(memory=many))[2].content
+    recalled = messages_for(a_world(memory=many))[3].content
     assert recalled.count("\n- ") == pr.RECALL_LINES
     assert "thing 49" in recalled
 

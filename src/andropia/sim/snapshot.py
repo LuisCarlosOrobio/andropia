@@ -68,6 +68,7 @@ def to_dict(world: World) -> dict[str, Any]:
         "entities": {eid: _enc(e) for eid, e in sorted(world.entities.items())},
         "landmarks": {lid: _enc(m) for lid, m in sorted(world.landmarks.items())},
         "transcript": [_enc(u) for u in world.transcript],
+        "setting": world.setting,
     }
 
 
@@ -86,6 +87,7 @@ def from_dict(d: dict[str, Any]) -> World:
         entities={eid: _dec_entity(e) for eid, e in d["entities"].items()},
         landmarks={lid: _dec_landmark(m) for lid, m in d["landmarks"].items()},
         transcript=tuple(_dec_utterance(u) for u in d["transcript"]),
+        setting=d["setting"],
     )
 
 

@@ -51,9 +51,43 @@ def messages(
     """The full message list for one being's turn."""
     return (
         Message("system", RULES),
+        # Where they are, before who they are. Identical for every being in a
+        # world, so it extends the prefix all of them share rather than
+        # starting a per-being one — and it is stable for the whole run, so it
+        # belongs above the observation either way.
+        *_where(obs),
         Message("system", _identity(ent, obs)),
         *_recollection(ent.memory, recall),
         Message("user", situation(obs)),
+    )
+
+
+def _where(obs: Observation) -> tuple[Message, ...]:
+    """The place itself, as a message.
+
+    A being told the names of things and nothing about the place will invent
+    one. Three of them once spent two minutes reporting the falling water level
+    of a pond that is a point on a flat plane, having agreed on a glowing seam
+    in a rock that does not have one. None of it contradicted anything they
+    were told, because they were told nothing.
+
+    So an empty setting is not silently skipped — it is stated. "There is
+    nothing here" is a fact about the world and beings should have it.
+    """
+    if obs.setting.strip():
+        return (Message("system", f"Where you are:\n\n{obs.setting.strip()}"),)
+    return (
+        Message(
+            "system",
+            "Where you are:\n\n"
+            "Nothing has been built here yet. The ground is bare and level, "
+            "there is no sky to speak of, no water, no plants, no weather, and "
+            "no sound but each other. The only things that exist are the beings "
+            "present and the few places named below. Do not invent scenery, "
+            "objects, creatures, or detail that you have not been told about — "
+            "if you want to know what something is like, the honest answer is "
+            "that there is nothing there to describe.",
+        ),
     )
 
 

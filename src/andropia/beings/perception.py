@@ -78,6 +78,9 @@ class Observation:
     tick: int
     doing: str
     feeling: str
+    #: What kind of place this is. Straight from the world, never derived here —
+    #: perception reports the place, it does not decide what the place is like.
+    setting: str = ""
     beings: tuple[Sighting, ...] = ()
     places: tuple[Place, ...] = ()
     heard: tuple[Utterance, ...] = ()
@@ -113,6 +116,7 @@ def observe(world: World, eid: EntityId) -> Observation | None:
     return Observation(
         who=eid,
         tick=world.tick,
+        setting=world.setting,
         doing=_doing(self_),
         feeling=_feeling(self_),
         beings=beings,

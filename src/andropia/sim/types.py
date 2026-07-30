@@ -258,6 +258,24 @@ class World:
     entities: dict[EntityId, Entity] = field(default_factory=dict)
     landmarks: dict[LandmarkId, Landmark] = field(default_factory=dict)
     transcript: tuple[Utterance, ...] = ()
+
+    #: What kind of place this is, in words, as a being standing in it would
+    #: describe it.
+    #:
+    #: The simulation never reads this — like ``Entity.avatar_pack``, it is
+    #: plain data another layer needs. It exists because without it beings are
+    #: told the *names* of things and nothing about the *place*, and a language
+    #: model handed a vacuum fills it: three of them once spent two minutes
+    #: reporting the water level of a pond that is a point on a plane.
+    #:
+    #: This must be derived from whatever the renderer actually draws, from one
+    #: declaration, for the same reason an avatar pack declares its own rig:
+    #: two sources of truth about one world will disagree, and the disagreement
+    #: surfaces as beings describing scenery that is not there. A world pack
+    #: will own both halves. Until then an author writes it, and writing it
+    #: honestly — including "there is nothing here" — is the whole point.
+    setting: str = ""
+
     # Seconds per tick. Fixed: the renderer interpolates between ticks, and
     # nothing in the simulation may consult a clock to discover it.
     dt: float = 0.05  # 20 Hz
