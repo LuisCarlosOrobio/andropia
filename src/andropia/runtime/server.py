@@ -345,6 +345,22 @@ def create_app(
 # --------------------------------------------------------------------------
 
 
+def _world_line(world: World) -> str:
+    """Where this run is happening, for the startup banner.
+
+    Stated because the alternative is the failure world packs exist to prevent.
+    A pack that fails to load prints its errors and then leaves beings on bare
+    ground — and those errors scroll past above a banner that cheerfully lists
+    everyone present, so the first symptom a person meets is a void nobody
+    explained. Naming the place makes its absence just as visible.
+    """
+    if not world.world_pack:
+        return "nowhere in particular — no world pack, the ground is bare"
+
+    places = len(world.landmarks)
+    return f"{world.world_pack} ({places} place{'' if places == 1 else 's'})"
+
+
 def _world_manifest(pack) -> dict[str, Any]:
     """A validated world pack, as JSON for the renderer.
 
@@ -669,6 +685,8 @@ if __name__ == "__main__":  # pragma: no cover
     app = create_app(world, autostart=True, drive_beings=True, cast=cast)
 
     print("\n  Andropia — http://127.0.0.1:8600")
+    # The place before the people, the same order a being's prompt is built in.
+    print(f"  world:  {_world_line(world)}")
     if cast is None:
         print("  beings: deterministic autopilot")
         if describe:

@@ -435,6 +435,23 @@ def test_the_demo_setting_is_generated_rather_than_typed():
     assert demo_world().setting == describe.setting(result.pack)
 
 
+def test_the_banner_names_the_world_and_counts_its_places():
+    from andropia.runtime.server import _world_line
+
+    assert _world_line(demo_world()) == "meadow (5 places)"
+
+
+def test_the_banner_says_when_no_world_loaded():
+    """A pack that fails to load prints its errors and leaves beings on bare
+    ground. Those errors scroll past above the banner, so the first symptom
+    anyone meets is a void nobody explained — unless the banner says so too."""
+    from andropia.runtime.server import _world_line
+    from andropia.sim.types import Entity, World
+
+    line = _world_line(World(entities={"ava": Entity(id="ava")}))
+    assert "no world pack" in line
+
+
 def test_worlds_lists_the_packs_it_found(client):
     body = client.get("/api/worlds").json()
     assert "meadow" in body["worlds"]
