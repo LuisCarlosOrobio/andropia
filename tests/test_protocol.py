@@ -221,6 +221,42 @@ def test_motion_goto_without_a_destination_is_ignored():
     assert p.to_intents(p.parse("[motion:goto]"), "ava") == ()
 
 
+def test_markdown_emphasis_is_not_spoken_aloud():
+    """A live run produced `**[look:pond]`.
+
+    The tag parsed correctly and the two asterisks became an utterance — a being
+    stood by a pond and said "**", which the renderer put in a speech bubble.
+    Models emit Markdown without being asked, and nothing here reads emphasis.
+    """
+    from andropia.sim.types import Look
+
+    assert p.to_intents(p.parse("**[look:pond]"), "ava") == (
+        Look(entity="ava", at="pond"),
+    )
+    assert p.to_intents(p.parse("**[relaxed]**"), "ava") == (
+        Emote(entity="ava", emotion="relaxed"),
+    )
+
+
+def test_emphasis_around_real_speech_is_stripped_not_the_speech():
+    intents = p.to_intents(p.parse("**Hello there.**"), "ava")
+    assert intents == (Speak(entity="ava", text="Hello there."),)
+
+
+def test_an_utterance_with_no_words_is_silence():
+    # Punctuation and formatting are not speech; a bubble containing "..." or
+    # "**" is a bug wearing a costume.
+    for noise in ("**", "...", "  *  ", "—", "* *"):
+        assert p.to_intents(p.parse(noise), "ava") == (), noise
+
+
+def test_asterisks_inside_a_sentence_survive():
+    # Only the edges are stripped. An asterisk mid-sentence may be doing real
+    # work, and deleting words is worse than leaving a stray mark in one.
+    said = p.to_intents(p.parse("It costs 5 * 3 coins."), "ava")[0].text
+    assert said == "It costs 5 * 3 coins."
+
+
 def test_every_vocabulary_word_round_trips():
     """No word in the public vocabulary may be unreachable through the
     grammar. This is what stops a tag being documented but dead."""

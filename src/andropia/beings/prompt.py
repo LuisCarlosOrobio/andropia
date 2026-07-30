@@ -169,5 +169,11 @@ def situation(obs: Observation) -> str:
             speaker = "you" if line.speaker == obs.who else line.speaker
             parts.append(f"- {speaker}: {line.text}")
 
+    if obs.quiet_for:
+        # So a being can notice that a wait has failed. Without it they cannot
+        # tell a pause from a deadlock, and a live run spent two minutes in
+        # silence waiting for something the world was never going to produce.
+        parts.append(f"\nNobody has said anything for {obs.quiet_for}.")
+
     parts.append("\nWhat do you do?")
     return "\n".join(parts)

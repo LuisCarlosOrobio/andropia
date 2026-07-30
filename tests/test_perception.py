@@ -228,3 +228,47 @@ def test_observation_is_plain_data():
     assert obs == per.observe(
         world_with(me, Entity(id="them", pos=Vec3(0.0, 0.0, 3.0))), "me"
     )
+
+
+# -- perceiving time -------------------------------------------------------
+
+
+def test_silence_is_perceivable():
+    """A being that cannot perceive time cannot notice a wait has failed.
+
+    A live run deadlocked on exactly this: the three of them agreed to watch a
+    ripple in the pond and stay quiet until it showed itself, then stood in
+    silence for over two minutes — because the ripple was invented, the world
+    has no creature in it, and nothing they could perceive would ever settle it.
+    """
+    me = Entity(id="me")
+    said = Utterance(tick=0, speaker="me", text="nobody speak")
+
+    def quiet_at(tick):
+        return per.observe(
+            World(tick=tick, entities={"me": me}, transcript=(said,)), "me"
+        ).quiet_for
+
+    assert quiet_at(0) is None  # just spoke; nothing to remark on
+    assert quiet_at(100) is None  # 5s — an ordinary pause
+    assert quiet_at(600) == "a little while"  # 30s
+    assert quiet_at(2000) == "a minute or two"  # 100s
+    assert quiet_at(6000) == "several minutes"  # 300s
+
+
+def test_silence_is_qualitative_like_every_other_distance():
+    # Reporting a number invites arithmetic, and the exact seconds are precision
+    # no model needs to conclude that a wait has gone on too long.
+    me = Entity(id="me")
+    world = World(
+        tick=4000,
+        entities={"me": me},
+        transcript=(Utterance(tick=0, speaker="me", text="x"),),
+    )
+    assert not any(ch.isdigit() for ch in per.observe(world, "me").quiet_for)
+
+
+def test_a_world_where_nothing_was_ever_said_reports_no_silence():
+    # There is a difference between a lull and a world that has not begun.
+    world = World(tick=9999, entities={"me": Entity(id="me")})
+    assert per.observe(world, "me").quiet_for is None

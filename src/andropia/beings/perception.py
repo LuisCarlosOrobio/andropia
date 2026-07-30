@@ -82,6 +82,9 @@ class Observation:
     places: tuple[Place, ...] = ()
     heard: tuple[Utterance, ...] = ()
     alone: bool = True
+    #: How long since anyone within earshot last spoke, in words. None when
+    #: something was said recently enough not to be worth remarking on.
+    quiet_for: str | None = None
 
 
 def observe(world: World, eid: EntityId) -> Observation | None:
@@ -105,6 +108,8 @@ def observe(world: World, eid: EntityId) -> Observation | None:
         if place is not None
     )
 
+    heard = _heard(world, self_)
+
     return Observation(
         who=eid,
         tick=world.tick,
@@ -112,8 +117,9 @@ def observe(world: World, eid: EntityId) -> Observation | None:
         feeling=_feeling(self_),
         beings=beings,
         places=places,
-        heard=_heard(world, self_),
+        heard=heard,
         alone=not any(s.proximity != "far away" for s in beings),
+        quiet_for=_quiet_for(world, heard),
     )
 
 
@@ -225,6 +231,35 @@ def _feeling(ent) -> str:
         return "nothing in particular"
     strength = "faintly" if ent.emotion_weight < 0.4 else "clearly"
     return f"{strength} {ent.emotion}"
+
+
+def _quiet_for(world: World, heard: tuple[Utterance, ...]) -> str | None:
+    """How long the world has been silent, in words a being can act on.
+
+    A being that cannot perceive time cannot notice that it is waiting for
+    something which will never arrive. A live run deadlocked on exactly that:
+    the three of them agreed to watch a ripple in the pond and keep quiet until
+    it showed itself, and then stood in silence for over two minutes — because
+    the ripple was invented, the world has no creature in it, and nothing they
+    could perceive would ever settle the question.
+
+    Not a fix for inventing things, which is fine and interesting. It is what
+    lets a being conclude the waiting has failed and do something else.
+
+    Qualitative, like every other distance here: the exact number of seconds is
+    precision no model needs, and reporting it would invite arithmetic.
+    """
+    if not heard:
+        return None
+
+    seconds = (world.tick - heard[-1].tick) * world.dt
+    if seconds < 15.0:
+        return None
+    if seconds < 45.0:
+        return "a little while"
+    if seconds < 150.0:
+        return "a minute or two"
+    return "several minutes"
 
 
 def _heard(world: World, self_) -> tuple[Utterance, ...]:

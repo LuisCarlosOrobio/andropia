@@ -214,10 +214,32 @@ def to_intents(events: tuple[Event, ...], eid: EntityId) -> tuple[Intent, ...]:
         if intent is not None:
             intents.append(intent)
 
-    text = "".join(said).strip()
+    text = _spoken("".join(said))
     # Speech first: a being greets and then waves, and the transcript should
     # not depend on where in the sentence the model happened to put the tag.
     return ((Speak(entity=eid, text=text),) if text else ()) + tuple(intents)
+
+
+#: Markdown emphasis, which models produce habitually and which this project
+#: has no use for — every line here is spoken aloud, and nothing reads emphasis.
+_EMPHASIS = "*_ \t\r\n"
+
+
+def _spoken(text: str) -> str:
+    """What a being actually says, once formatting is discounted.
+
+    Models wrap things in Markdown without being asked. A live run produced
+    ``**[look:pond]``: the tag parsed correctly, and the two asterisks became an
+    utterance — a being stood by a pond and said "**", which the renderer duly
+    put in a speech bubble.
+
+    So emphasis markers are stripped from the edges, and an utterance left with
+    no letters or digits at all is silence rather than punctuation. Only the
+    edges: an asterisk inside a sentence might be doing real work, and deleting
+    words is worse than leaving a stray mark in one.
+    """
+    trimmed = text.strip(_EMPHASIS)
+    return trimmed if any(ch.isalnum() for ch in trimmed) else ""
 
 
 def _intent(tag: Tag, eid: EntityId) -> Intent | None:
