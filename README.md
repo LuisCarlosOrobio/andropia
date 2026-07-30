@@ -95,7 +95,7 @@ replay reads the intent log and never calls a model: the run reproduces
 whatever the temperature was, and whether or not the endpoint still exists.
 
 ```bash
-make check   # 264 Python tests, 115 JS tests, none need a browser
+make check   # 288 Python tests, 115 JS tests, none need a browser
 ```
 
 ## Licence

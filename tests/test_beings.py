@@ -44,6 +44,18 @@ def a_world(tick=0, **over):
     )
 
 
+def a_cast_world(tick=0):
+    """Three beings, all present. `wants_turn` refuses a being that is not in
+    the world, so a scheduling test needs every id it schedules."""
+    return World(
+        tick=tick,
+        entities={
+            eid: Entity(id=eid, pos=Vec3(float(i), 0.0, 0.0))
+            for i, eid in enumerate(("ava", "claude", "mistral"))
+        },
+    )
+
+
 def transport(handler):
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
@@ -129,6 +141,99 @@ def test_heard_since_is_bounded_by_the_last_thought():
         transcript=(Utterance(tick=5, speaker="bob", text="ancient"),),
     )
     assert runner.wants_turn(world, "ava", since=100) is False
+
+
+def test_nobody_is_starved_by_the_alphabet():
+    """The regression for a being that spoke once in seventy seconds.
+
+    Only one being thinks at a time, so how the one is chosen decides who gets
+    heard. Taking the first eligible being in id order gives `ava` and `claude`
+    strict priority and `mistral` only ever speaks when neither wants a turn —
+    which reads as a sulking personality rather than a scheduler bug.
+    """
+    cast = Cast(minds=dict.fromkeys(("ava", "claude", "mistral")))
+    heard: list[str] = []
+    tick = runner.IDLE_THINK_TICKS + 1
+
+    # Advancing a full idle interval per round, because with an empty
+    # transcript that is the only thing that makes a being due — nothing has
+    # been said for it to react to. A shorter step correctly yields nobody.
+    for _ in range(9):
+        world = a_cast_world(tick=tick)
+        eid = runner.next_speaker(cast, world)
+        assert eid is not None, f"nobody was due at tick {tick} after {heard}"
+        heard.append(eid)
+        cast.last_thought[eid] = tick
+        tick += runner.IDLE_THINK_TICKS + 1
+
+    # Every being spoke, and roughly evenly — not one of them three times
+    # while another never got a word in.
+    assert set(heard) == {"ava", "claude", "mistral"}
+    assert all(heard.count(eid) == 3 for eid in set(heard)), heard
+
+
+def test_an_active_conversation_does_not_starve_anyone():
+    """The condition the bug actually needed, and the reason the test above is
+    not enough on its own.
+
+    With an empty transcript nobody is due twice running, so any scheduler
+    trivially round-robins and the alphabetical version looks fine. Starvation
+    needs a *live* conversation: each utterance keeps every other being due, so
+    several are eligible every round and id order becomes strict priority.
+    Simulated over thirty rounds, the shipped version gave `ava` and `claude`
+    fifteen turns each and `mistral` none.
+    """
+    beings = ("ava", "claude", "mistral")
+    cast = Cast(minds=dict.fromkeys(beings))
+    transcript: tuple[Utterance, ...] = ()
+    heard: list[str] = []
+    tick = runner.IDLE_THINK_TICKS + 1
+
+    for _ in range(30):
+        world = World(
+            tick=tick,
+            entities={
+                eid: Entity(id=eid, pos=Vec3(float(i), 0.0, 0.0))
+                for i, eid in enumerate(beings)
+            },
+            transcript=transcript,
+        )
+        eid = runner.next_speaker(cast, world)
+        if eid is not None:
+            heard.append(eid)
+            cast.last_thought[eid] = tick
+            # Speaking is what keeps the others due, and so what exposes the
+            # bug: without this the transcript never grows and nobody is.
+            transcript = (*transcript, Utterance(tick=tick, speaker=eid, text="..."))
+        tick += runner.MIN_THINK_TICKS + 1
+
+    counts = {eid: heard.count(eid) for eid in beings}
+    assert all(counts.values()), f"starved: {counts}"
+    # Within one turn of even. The old version was 15 / 15 / 0.
+    assert max(counts.values()) - min(counts.values()) <= 1, counts
+
+
+def test_the_longest_waiting_being_goes_next():
+    cast = Cast(minds=dict.fromkeys(("ava", "claude", "mistral")))
+    world = a_cast_world(tick=1000)
+    cast.last_thought.update({"ava": 900, "claude": 500, "mistral": 800})
+
+    assert runner.next_speaker(cast, world) == "claude"
+
+
+def test_turn_choice_is_deterministic_when_beings_tie():
+    # Same world and same cast must give the same answer, or a replay of the
+    # scheduler diverges from the run it recorded.
+    cast = Cast(minds=dict.fromkeys(("mistral", "ava", "claude")))
+    world = a_cast_world(tick=runner.IDLE_THINK_TICKS + 1)
+    assert runner.next_speaker(cast, world) == runner.next_speaker(cast, world) == "ava"
+
+
+def test_nobody_speaks_when_nobody_is_due():
+    cast = Cast(minds=dict.fromkeys(("ava", "claude")))
+    world = a_cast_world(tick=10)
+    cast.last_thought.update({"ava": 10, "claude": 10})
+    assert runner.next_speaker(cast, world) is None
 
 
 # -- memory ----------------------------------------------------------------

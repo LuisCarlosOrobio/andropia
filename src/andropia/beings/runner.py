@@ -142,6 +142,31 @@ def _heard_since(world: World, eid: EntityId, since: int) -> bool:
     )
 
 
+def next_speaker(cast: Cast, world: World) -> EntityId | None:
+    """Which being gets the next turn: whoever has waited longest.
+
+    Only one being thinks at a time, so *how* the one is chosen decides who
+    gets heard. Taking the first eligible being in id order starves everyone
+    after it — a being late in the alphabet only ever speaks when nobody
+    earlier wants to.
+
+    That is not hypothetical. Against three beings on a live model, `mistral`
+    managed one line in seventy minutes of ticks while `ava` and `claude` held
+    the floor; `claude` addressed it directly twice and it never answered,
+    which reads as a sulking personality rather than a scheduler bug.
+
+    Longest-waiting is fair without needing a queue, and ties break on id so
+    the choice stays deterministic for the same world and the same cast.
+    """
+    never = -(10**9)
+    waiting = [
+        (cast.last_thought.get(eid, never), eid)
+        for eid in sorted(cast.minds)
+        if wants_turn(world, eid, cast.last_thought.get(eid, never))
+    ]
+    return min(waiting)[1] if waiting else None
+
+
 def turn_memory(intents: tuple[Intent, ...], limit: int = MEMORY_CHARS) -> str:
     """A one-line note of what a being just did, for its own memory.
 
@@ -215,31 +240,29 @@ async def drive(
         while not stop.is_set():
             world = snapshot()
 
-            for eid, mind in sorted(cast.minds.items()):
-                # One being thinks at a time, across the whole cast.
-                #
-                # `wants_turn` refuses to start while someone is *speaking*,
-                # which is not enough on its own: two beings can both come due
-                # while the world is silent, and their replies then land on the
-                # same tick. Running it against a fake model produced exactly
-                # that, five times in thirty seconds.
-                #
-                # Serialising starts fixes it completely, because a turn cannot
-                # begin until the previous being has finished speaking. The cost
-                # is that beings in separate conversations wait for each other,
-                # which is wrong for a crowd and right for the handful this is
-                # built for — per-group arbitration is the thing to add when a
-                # world is busy enough to need it.
-                if cast.thinking:
-                    break
-                if not wants_turn(world, eid, cast.last_thought.get(eid, -10**9)):
-                    continue
-
-                cast.thinking.add(eid)
-                cast.last_thought[eid] = world.tick
-                task = asyncio.create_task(_turn(world, mind, cast, propose))
-                running.add(task)
-                task.add_done_callback(running.discard)
+            # One being thinks at a time across the whole cast, and the one
+            # that has waited longest goes next.
+            #
+            # `wants_turn` refuses to start while someone is *speaking*, which
+            # is not enough on its own: two beings can both come due while the
+            # world is silent, and their replies then land on the same tick.
+            # Serialising starts fixes that completely, because a turn cannot
+            # begin until the previous being has finished speaking.
+            #
+            # The cost is that beings in separate conversations wait for each
+            # other, which is wrong for a crowd and right for the handful this
+            # is built for. Per-group arbitration is the thing to add when a
+            # world is busy enough to need it.
+            if not cast.thinking:
+                eid = next_speaker(cast, world)
+                if eid is not None:
+                    cast.thinking.add(eid)
+                    cast.last_thought[eid] = world.tick
+                    task = asyncio.create_task(
+                        _turn(world, cast.minds[eid], cast, propose)
+                    )
+                    running.add(task)
+                    task.add_done_callback(running.discard)
 
             await _sleep_or_stop(stop, poll)
     finally:
@@ -308,6 +331,7 @@ __all__ = [
     "Mind",
     "Model",
     "drive",
+    "next_speaker",
     "personas",
     "think",
     "turn_memory",
