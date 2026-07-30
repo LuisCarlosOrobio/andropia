@@ -39,6 +39,7 @@ make dev
 pip install -e '.[claude]'
 export ANTHROPIC_API_KEY=...
 export ANDROPIA_CLAUDE_MODEL=claude-opus-5   # optional; this is the default
+make claude-check   # two live turns: key, credit, model, caching. ~1 cent.
 make dev
 ```
 
