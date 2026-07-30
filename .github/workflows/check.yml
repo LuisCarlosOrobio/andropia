@@ -1,0 +1,69 @@
+name: check
+
+# The same thing `make check` runs locally: ruff, the Python suite, the
+# JavaScript suite. Neither suite needs a browser, a GPU, a network, or a model,
+# so this is the whole of it — there is no "integration" tier that only runs
+# somewhere else.
+#
+# It runs against a *fresh checkout*, which is the part that matters and the
+# reason this file exists. Both suites read `worlds/example/world.json`, and a
+# `.gitignore` rule once kept that file out of every clone while the working
+# tree stayed green. Nothing local can catch that class of bug; only a build
+# that starts from what was actually committed can.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A second push supersedes the first. Nobody needs the results of a commit
+  # that has already been replaced.
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in pyproject.toml, and current. A project claiming
+        # >=3.11 should be run on 3.11 by something other than its author's
+        # optimism.
+        python: ['3.11', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[runtime,dev]"
+          npm --prefix frontend ci
+
+      # PYTHON=python because `make` defaults to a local `.venv/`, which a
+      # runner does not have — the interpreter here is already the right one.
+      - name: Check
+        run: make check PYTHON=python
+
+      # Not part of `make check`, and deliberately not a failure here either:
+      # the bundle is checked because a broken import in the viewer is invisible
+      # to both suites, which never load it.
+      - name: Build the viewer
+        run: make build
