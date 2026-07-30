@@ -336,6 +336,62 @@ async def test_a_model_that_rejects_adaptive_thinking_is_retried_without_it():
     assert "thinking" not in calls[1]
 
 
+async def test_a_model_rejecting_two_features_recovers_within_one_turn():
+    """A real run lost a turn to this.
+
+    The API names one offending parameter per 400, so a model that rejects both
+    thinking and effort needs two discoveries. With a cap of two attempts the
+    second landed after the turn was already gone — the log read
+    "does not take thinking; retrying", then a 400 about effort, then a failed
+    turn, and only the *next* turn succeeded.
+    """
+    import anthropic
+    import httpx
+
+    calls = []
+
+    def handler(request):
+        import json
+
+        body = json.loads(request.content)
+        calls.append(sorted(k for k in ("thinking", "output_config") if k in body))
+        # One complaint at a time, exactly as the API does it.
+        if "thinking" in body:
+            message = "adaptive thinking is not supported on this model"
+        elif "output_config" in body:
+            message = "This model does not support the effort parameter."
+        else:
+            return httpx.Response(
+                200,
+                json={
+                    "id": "m",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "old",
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "content": [{"type": "text", "text": "[happy]Hello."}],
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                },
+            )
+        return httpx.Response(
+            400,
+            json={"type": "error", "error": {"type": "invalid_request_error",
+                                             "message": message}},
+        )
+
+    client = anthropic.AsyncAnthropic(
+        api_key="sk-test",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    reply = await claude.complete(client, claude.Claude(name="old"), messages_for())
+
+    # Succeeded on this turn rather than the next one.
+    assert reply.ok, reply.error
+    assert calls[-1] == []  # the winning attempt asked for neither
+    assert len(calls) == 3
+
+
 async def test_what_a_model_rejects_is_remembered():
     # Or every single turn pays for a failed request first.
     import anthropic

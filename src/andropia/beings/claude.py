@@ -201,10 +201,15 @@ async def complete(client, model: Claude, messages: Sequence[Message]) -> Reply:
 
     system, chat = split(messages)
 
-    # Two attempts at most: the second only happens when the first failed by
-    # naming a parameter this model does not take, which is knowledge worth
-    # keeping rather than a failure worth reporting.
-    for attempt in (1, 2):
+    # One attempt per feature that might be rejected, plus the one that should
+    # succeed. The API names a single offending parameter per 400, so an
+    # unfamiliar model that rejects two of them needs two discoveries — with a
+    # cap of two attempts the second landed after the turn was already lost,
+    # and a real run wasted a turn saying so.
+    #
+    # Bounded by the feature list rather than a magic number, so adding a
+    # feature cannot quietly reintroduce the same off-by-one.
+    for attempt in range(1, len(_FEATURE_HINTS) + 2):
         try:
             response = await client.messages.create(
                 model=model.name,
@@ -220,7 +225,7 @@ async def complete(client, model: Claude, messages: Sequence[Message]) -> Reply:
         except anthropic.RateLimitError as exc:
             return Reply(error=f"rate limited: {exc}")
         except anthropic.BadRequestError as exc:
-            if attempt == 1 and _learn(model, str(exc)):
+            if attempt <= len(_FEATURE_HINTS) and _learn(model, str(exc)):
                 dropped = ", ".join(sorted(_UNSUPPORTED[model.name]))
                 print(f"[andropia] {model.name} does not take {dropped}; retrying")
                 continue
