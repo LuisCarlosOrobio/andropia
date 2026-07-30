@@ -11,14 +11,21 @@ is in front of it, in words rather than coordinates. It acts by writing tags
 inline in what it says. And the whole run is reproducible from a seed, even
 though there are language models in the loop.
 
-**[▶ Watch the demo](brand/demo.mp4)** — three beings in the meadow, walking to
-places and working out what is around them by talking to each other.
+[![Three beings in the meadow, working out what is around them](brand/screenshot.png)](brand/demo.mp4)
+
+**[▶ Play the demo](brand/demo.mp4)** (52s) — walking to places, and reasoning
+about the ground they are standing on. *"If it came down the slope there'll be
+a line in the grass where it walked. Rain was hours ago, so it'd still hold."*
 
 <!--
-  INLINE PLAYER. GitHub will not render one from the relative link above; that
-  needs the same file uploaded to their CDN. Edit this README on github.com,
-  drag brand/demo.mp4 into the editor, and paste the URL it inserts here in
-  place of this comment. The committed copy stays, for anyone who clones.
+  AUTOPLAYING INLINE PLAYER, optional. A <video> tag survives GitHub's markdown
+  sanitizer, but pointing one at brand/demo.mp4 gives a player that will not
+  play: the raw hosts serve video as application/octet-stream with nosniff, so
+  the browser refuses it. A working embed needs GitHub's own attachment CDN.
+
+  To add one: edit this README on github.com, drag brand/demo.mp4 into the
+  editor, and paste the URL it inserts above this comment. The committed copy
+  and the poster above stay either way, for anyone reading a clone.
 -->
 
 ## What you are looking at
