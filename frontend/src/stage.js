@@ -11,6 +11,7 @@
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { wrapText } from './stage-text.js'
 import { bodyState } from './pose.js'
 
 const PLACEHOLDER_COLOUR = {
@@ -121,7 +122,9 @@ export class Stage {
     pin.position.y = 0.5
     pin.castShadow = true
     group.add(pin)
-    group.add(makeLabel(description || id, 1.5))
+    const mark = makePlate(description || id)
+    mark.position.y = 1.5
+    group.add(mark)
 
     this.scene.add(group)
     this.landmarks.set(id, group)
@@ -146,15 +149,28 @@ export class Stage {
     placeholder.castShadow = true
     group.add(placeholder)
 
-    const label = makeLabel(id, 1.95)
+    const label = makePlate(id)
     group.add(label)
 
-    const speech = makeLabel('', 2.35)
+    const speech = makePlate('', { wrap: SPEECH_WRAP, tone: 'speech' })
     speech.visible = false
     group.add(speech)
 
     this.scene.add(group)
-    const entry = { id, group, placeholder, body: null, label, speech, requested: false }
+    const entry = {
+      id,
+      group,
+      placeholder,
+      body: null,
+      label,
+      speech,
+      requested: false,
+      // Top of the placeholder capsule, until a real body reports its own.
+      // Plates are stacked from here, so it is the one measurement that has to
+      // track whichever avatar is actually loaded — a fixed offset puts the
+      // name inside a tall head or floating above a short one.
+      head: 1.62,
+    }
     this.beings.set(id, entry)
     return entry
   }
@@ -187,8 +203,14 @@ export class Stage {
       entry.group.position.set(...state.position)
       if (state.yaw !== null && !entry.body) entry.group.rotation.y = state.yaw
 
+      // Stacked from the head, bottom edge upward: name first, then speech
+      // clearing whatever height the name turned out to be. Recomputed per
+      // frame because the speech plate changes height with its line count.
+      entry.label.position.y = entry.head + 0.06
       if (state.speech) {
-        setLabel(entry.speech, state.speech)
+        setPlate(entry.speech, state.speech)
+        entry.speech.position.y =
+          entry.label.position.y + entry.label.userData.height + 0.05
         entry.speech.visible = true
       } else {
         entry.speech.visible = false
@@ -215,6 +237,7 @@ export class Stage {
       entry.body = body
       entry.group.add(body.group)
       entry.placeholder.visible = false
+      entry.head = headHeight(body)
     })
   }
 
@@ -289,42 +312,108 @@ export class Stage {
 
 // --------------------------------------------------------------------------
 
-function makeLabel(text, y) {
+/**
+ * A nameplate or speech bubble, in the MMO idiom.
+ *
+ * Two things make these stack predictably instead of drifting.
+ *
+ * **Bottom-anchored.** A three.js sprite is centred on its position by
+ * default, so a taller bubble grows in both directions and a fixed y offset
+ * puts a long line straight through the name below it. Setting `center` to the
+ * bottom edge makes the anchor the one point that must not move: everything
+ * grows upward from the head.
+ *
+ * **A fixed world height per line.** Canvas pixels are converted at one
+ * constant, so a plate's size in the world depends on how many lines it has and
+ * nothing else. Text length changes the width; it can never change the height,
+ * which is what stops a long utterance from shoving its own name off the head.
+ */
+function makePlate(text, { wrap = 0, tone = "name" } = {}) {
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ transparent: true, depthTest: false })
   )
-  sprite.position.y = y
-  setLabel(sprite, text)
+  // Anchor the bottom edge. Everything above a being's head is stacked from
+  // here, so this is the line that has to be stable.
+  sprite.center.set(0.5, 0)
+  sprite.userData.wrap = wrap
+  sprite.userData.tone = tone
+  setPlate(sprite, text)
   return sprite
 }
 
-function setLabel(sprite, text) {
+/**
+ * How high above a being's origin its plates should start.
+ *
+ * Measured from the loaded model rather than assumed, because avatars differ:
+ * the same offset that clears a 1.6 m anime figure sits inside the head of a
+ * shorter one and floats above a taller one. A VRM exposes its head bone, which
+ * is the honest anchor; anything else falls back to the bounding box, and a
+ * model that reports neither keeps the placeholder's height.
+ */
+function headHeight(body, fallback = 1.62) {
+  const head = body.vrm?.humanoid?.getNormalizedBoneNode?.('head')
+  if (head) {
+    // Rest height in the normalised rig, plus a little for the skull above the
+    // bone itself — the head bone sits at the neck join, not the crown.
+    const y = new THREE.Vector3()
+    head.getWorldPosition(y)
+    if (Number.isFinite(y.y) && y.y > 0.2) return y.y + 0.18
+  }
+
+  const box = new THREE.Box3().setFromObject(body.root)
+  return Number.isFinite(box.max.y) && box.max.y > 0.2 ? box.max.y + 0.06 : fallback
+}
+
+/** World metres per canvas pixel. One constant, so line height never varies. */
+const PLATE_SCALE = 1 / 115
+
+/** Longest a speech line may get before it wraps, in characters. */
+const SPEECH_WRAP = 34
+
+const PLATE_TONES = {
+  name: { font: "600 30px ui-monospace, Menlo, monospace", fill: "#cfd6dd",
+          back: "rgba(14,17,20,0.66)", pad: 12, line: 44 },
+  speech: { font: "500 30px ui-sans-serif, system-ui, sans-serif", fill: "#f2f5f8",
+            back: "rgba(20,26,32,0.86)", pad: 16, line: 40 },
+}
+
+function setPlate(sprite, text) {
   if (sprite.userData.text === text) return
   sprite.userData.text = text
 
-  const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')
-  const font = '500 32px ui-monospace, Menlo, monospace'
+  const tone = PLATE_TONES[sprite.userData.tone] ?? PLATE_TONES.name
+  const canvas = document.createElement("canvas")
+  const ctx = canvas.getContext("2d")
 
-  ctx.font = font
-  const width = Math.max(8, ctx.measureText(text).width)
-  canvas.width = Math.ceil(width) + 24
-  canvas.height = 48
+  ctx.font = tone.font
+  const lines = sprite.userData.wrap ? wrapText(text, sprite.userData.wrap) : [text]
+  const widest = Math.max(8, ...lines.map((l) => ctx.measureText(l).width))
 
-  ctx.font = font
-  ctx.fillStyle = 'rgba(14,17,20,0.75)'
-  roundRect(ctx, 0, 0, canvas.width, canvas.height, 8)
+  canvas.width = Math.ceil(widest) + tone.pad * 2
+  canvas.height = lines.length * tone.line + tone.pad
+
+  // Re-set after resizing: changing canvas dimensions resets the 2d context,
+  // so a font assigned before this point is silently discarded and every plate
+  // renders in the browser default.
+  ctx.font = tone.font
+  ctx.fillStyle = tone.back
+  roundRect(ctx, 0, 0, canvas.width, canvas.height, 10)
   ctx.fill()
-  ctx.fillStyle = '#e6e9ec'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(text, 12, canvas.height / 2)
+
+  ctx.fillStyle = tone.fill
+  ctx.textBaseline = "middle"
+  lines.forEach((line, i) => {
+    ctx.fillText(line, tone.pad, tone.pad / 2 + tone.line * (i + 0.5))
+  })
 
   sprite.material.map?.dispose()
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
   sprite.material.map = texture
   sprite.material.needsUpdate = true
-  sprite.scale.set(canvas.width / 115, canvas.height / 115, 1)
+  sprite.scale.set(canvas.width * PLATE_SCALE, canvas.height * PLATE_SCALE, 1)
+  // What the next plate up has to clear.
+  sprite.userData.height = canvas.height * PLATE_SCALE
 }
 
 function roundRect(ctx, x, y, w, h, r) {
