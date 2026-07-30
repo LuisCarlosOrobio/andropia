@@ -214,6 +214,20 @@ def test_no_coordinates_leak_into_the_prompt():
         assert not re.search(r"-?\d+\.\d+", message.content), message.content
 
 
+def test_the_prompt_says_that_announcing_a_move_is_not_moving():
+    """A live run had one being announce a destination three times and never
+    take a step, while another kept catching it: "two announcements, zero
+    steps." Saying "I'll be there" is not the same as emitting [goto:...], and
+    nothing in the prompt said so.
+
+    The others can see where it actually is, so the failure is not cosmetic —
+    it makes a being wrong about its own body in front of witnesses.
+    """
+    lowered = pr.RULES.lower()
+    assert "does not do it" in lowered
+    assert "[goto:pond] moves you" in pr.RULES
+
+
 def test_the_prompt_does_not_present_the_being_as_an_assistant():
     # These beings talk to each other. Framing one as an assistant with a user
     # is what produces "How can I help you today?" in a field.
