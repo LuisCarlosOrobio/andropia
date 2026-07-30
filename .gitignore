@@ -47,12 +47,15 @@ worlds/*
 !worlds/meadow/
 
 # --- Demo media ---
-# Recordings are uploaded to GitHub's CDN by dragging them into a README edit,
-# which keeps them out of the repository entirely. A committed video is
-# permanent clone weight for something that will be re-recorded.
+# Raw captures stay out: they are large, and there will be several of them.
+# The one compressed clip that ships lives in brand/ and is committed, so the
+# repository is self-contained. GitHub will not render a player for it from a
+# relative link — that needs the same file dragged into a README edit, which
+# uploads a second copy to their CDN. The commit is for people who clone.
 *.mp4
 *.mov
 *.webm
+!brand/demo.mp4
 
 # --- Simulation artifacts ---
 snapshots/

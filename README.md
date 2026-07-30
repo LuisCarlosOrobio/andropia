@@ -11,13 +11,14 @@ is in front of it, in words rather than coordinates. It acts by writing tags
 inline in what it says. And the whole run is reproducible from a seed, even
 though there are language models in the loop.
 
+**[▶ Watch the demo](brand/demo.mp4)** — three beings in the meadow, walking to
+places and working out what is around them by talking to each other.
+
 <!--
-  SCREENSHOT GOES HERE. Drop the file at brand/screenshot.png and uncomment:
-
-![Three beings in the meadow](brand/screenshot.png)
-
-  Worth capturing: three beings reasonably close together with a speech bubble
-  visible, the pond in frame, camera low enough that the bodies read as bodies.
+  INLINE PLAYER. GitHub will not render one from the relative link above; that
+  needs the same file uploaded to their CDN. Edit this README on github.com,
+  drag brand/demo.mp4 into the editor, and paste the URL it inserts here in
+  place of this comment. The committed copy stays, for anyone who clones.
 -->
 
 ## What you are looking at
