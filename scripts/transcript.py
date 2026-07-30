@@ -28,6 +28,7 @@ def main() -> int:
     seen = 0
     trouble: dict[str, str] = {}
     doing: dict[str, tuple] = {}
+    driver: str | None = None
     print(f"tailing {URL}  (ctrl-c to stop)\n")
 
     while True:
@@ -41,6 +42,23 @@ def main() -> int:
             continue
         except KeyboardInterrupt:
             return 0
+
+        # Stated before any line, and again if it ever changes. The autopilot
+        # speaks from eight canned phrases; a transcript of those looks like a
+        # model looping rather than like the wrong driver, so the reader has to
+        # be told which they are watching before they start interpreting.
+        if data.get("driver") != driver:
+            driver = data.get("driver")
+            if driver == "autopilot":
+                print(
+                    "  ** driver: deterministic AUTOPILOT — canned phrases, no model.\n"
+                    "     export ANTHROPIC_API_KEY (or ANDROPIA_BASE_URL) and restart\n"
+                    "     `make dev` to let language models drive them.\n"
+                )
+            elif driver == "models":
+                print("  ** driver: language models\n")
+            else:
+                print("  ** driver: none — nothing is driving these beings\n")
 
         for line in data["lines"]:
             if line["tick"] < seen:

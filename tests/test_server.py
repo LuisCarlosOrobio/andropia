@@ -403,3 +403,25 @@ def test_transcript_reports_what_beings_are_doing_not_just_saying():
         # A neutral being reports no emotion rather than the word "neutral",
         # so the tail prints only what is actually happening.
         assert doing["claude"]["emotion"] is None
+
+
+def test_transcript_names_which_driver_is_speaking():
+    """The autopilot speaks from eight canned phrases, and a transcript of those
+    is superficially indistinguishable from a conversation — repeating stock
+    lines read as a model looping rather than as the wrong driver entirely.
+
+    This cost a real debugging session: a full transcript of autopilot phrases
+    was very nearly diagnosed as a prompt problem.
+    """
+    from andropia.beings.runner import Cast
+
+    with TestClient(create_app(demo_world(), drive_beings=True)) as client:
+        assert client.get("/api/transcript").json()["driver"] == "autopilot"
+
+    with TestClient(create_app(demo_world(), drive_beings=True, cast=Cast())) as client:
+        # A configured cast switches the autopilot off, and the driver has to
+        # say so — two things proposing for one being would fight.
+        assert client.get("/api/transcript").json()["driver"] == "models"
+
+    with TestClient(create_app(demo_world())) as client:
+        assert client.get("/api/transcript").json()["driver"] == "none"

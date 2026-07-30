@@ -184,6 +184,17 @@ def create_app(
         world = hub.session.world
         return {
             "tick": world.tick,
+            # Which driver is producing these lines.
+            #
+            # Not a nicety. The autopilot speaks from a list of eight canned
+            # phrases, and a transcript of those is superficially indistinguishable
+            # from a conversation — repeating stock lines read as a model looping
+            # rather than as the wrong driver entirely. The startup banner says
+            # which one is running and scrolls past under the build output; this
+            # is where someone is actually looking.
+            "driver": (
+                "autopilot" if hub.drive_beings else "models" if hub.cast else "none"
+            ),
             "lines": [
                 {"tick": u.tick, "speaker": u.speaker, "text": u.text}
                 for u in world.transcript
