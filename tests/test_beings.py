@@ -236,6 +236,75 @@ def test_nobody_speaks_when_nobody_is_due():
     assert runner.next_speaker(cast, world) is None
 
 
+def test_a_failing_being_waits_longer_each_time():
+    """Written during a real outage.
+
+    The API returned 500s and 529s for three minutes. Each being retried the
+    moment MIN_THINK_TICKS elapsed, so the world issued a request every second
+    and a half throughout — which helps nobody, and is billed on the failures
+    that are billed.
+    """
+    cast = Cast(minds=dict.fromkeys(("ava",)))
+    world = a_cast_world(tick=runner.IDLE_THINK_TICKS + 1)
+    cast.last_thought["ava"] = 0
+
+    assert runner.next_speaker(cast, world) == "ava"  # no failures yet
+
+    cast.misses["ava"] = 3
+    assert runner.next_speaker(cast, world) is None  # inside the backoff
+
+    later = a_cast_world(tick=runner.backoff(3) + 1)
+    cast.last_thought["ava"] = 0
+    assert runner.next_speaker(cast, later) == "ava"  # past it
+
+
+def test_backoff_grows_and_then_stops_growing():
+    delays = [runner.backoff(n) for n in range(len(runner.BACKOFF_TICKS) + 4)]
+    assert delays[0] == 0  # a first failure costs nothing extra
+    assert delays == sorted(delays)  # never shrinks
+    # Capped: a being that backs off forever never comes back, and an outage
+    # ends eventually.
+    assert delays[-1] == delays[len(runner.BACKOFF_TICKS) - 1]
+
+
+def test_a_healthy_being_is_not_delayed_by_a_broken_one():
+    # One endpoint failing must not quiet the whole world.
+    cast = Cast(minds=dict.fromkeys(("ava", "claude")))
+    cast.misses["ava"] = 5
+    cast.last_thought.update({"ava": 0, "claude": 0})
+    world = a_cast_world(tick=runner.IDLE_THINK_TICKS + 1)
+
+    assert runner.next_speaker(cast, world) == "claude"
+
+
+async def test_a_successful_turn_clears_the_backoff():
+    world = a_world(tick=runner.IDLE_THINK_TICKS + 1)
+    cast = Cast()
+    proposed: list = []
+
+    async with transport(completion("[happy]Hi.")) as client:
+        cast.minds["ava"] = mind("ava", client)
+        cast.misses["ava"] = 4
+        await runner._turn(world, cast.minds["ava"], cast, proposed.append)
+
+    assert "ava" not in cast.misses
+    assert "ava" not in cast.trouble
+
+
+async def test_a_failed_turn_counts_toward_the_backoff():
+    world = a_world(tick=runner.IDLE_THINK_TICKS + 1)
+    cast = Cast()
+
+    def handler(request):
+        return httpx.Response(529, text="Overloaded")
+
+    async with transport(handler) as client:
+        cast.minds["ava"] = mind("ava", client)
+        for expected in (1, 2, 3):
+            await runner._turn(world, cast.minds["ava"], cast, lambda _: None)
+            assert cast.misses["ava"] == expected
+
+
 # -- memory ----------------------------------------------------------------
 
 

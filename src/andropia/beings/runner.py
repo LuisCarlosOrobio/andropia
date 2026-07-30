@@ -41,6 +41,19 @@ MIN_THINK_TICKS = 30
 #: world does not freeze into a tableau. About twelve seconds.
 IDLE_THINK_TICKS = 240
 
+#: Extra ticks to wait after each consecutive failed turn, so a struggling
+#: endpoint is not hammered by three beings in rotation.
+#:
+#: At 20 Hz: no wait, then roughly 3s, 9s, 20s, 45s, 90s. Capped rather than
+#: unbounded — a being that backs off forever is a being that never comes back,
+#: and an outage ends eventually.
+#:
+#: This exists because of a real one. The API returned 500s and 529s for three
+#: minutes; each being retried the moment `MIN_THINK_TICKS` elapsed, so the world
+#: issued a request every second and a half throughout, which helps nobody and
+#: is charged for on the failures that are billed.
+BACKOFF_TICKS: tuple[int, ...] = (0, 60, 180, 400, 900, 1800)
+
 #: How much of its own turn a being commits to memory. Enough to keep continuity
 #: past the transcript window without writing an essay.
 MEMORY_CHARS = 160
@@ -76,6 +89,8 @@ class Cast:
     thinking: set[EntityId] = field(default_factory=set)
     #: Last error per being, for the operator. Beings do not see these.
     trouble: dict[EntityId, str] = field(default_factory=dict)
+    #: Consecutive failed turns per being, which drives the backoff.
+    misses: dict[EntityId, int] = field(default_factory=dict)
 
     @classmethod
     def of(cls, *minds: Mind) -> Cast:
@@ -142,6 +157,11 @@ def _heard_since(world: World, eid: EntityId, since: int) -> bool:
     )
 
 
+def backoff(misses: int) -> int:
+    """Extra ticks a being waits after ``misses`` consecutive failed turns."""
+    return BACKOFF_TICKS[min(misses, len(BACKOFF_TICKS) - 1)]
+
+
 def next_speaker(cast: Cast, world: World) -> EntityId | None:
     """Which being gets the next turn: whoever has waited longest.
 
@@ -159,11 +179,17 @@ def next_speaker(cast: Cast, world: World) -> EntityId | None:
     the choice stays deterministic for the same world and the same cast.
     """
     never = -(10**9)
-    waiting = [
-        (cast.last_thought.get(eid, never), eid)
-        for eid in sorted(cast.minds)
-        if wants_turn(world, eid, cast.last_thought.get(eid, never))
-    ]
+    waiting = []
+
+    for eid in sorted(cast.minds):
+        since = cast.last_thought.get(eid, never)
+        # A being whose last few turns failed waits longer than one whose did
+        # not. Additional to `wants_turn`, which enforces the ordinary minimum.
+        if world.tick - since < backoff(cast.misses.get(eid, 0)):
+            continue
+        if wants_turn(world, eid, since):
+            waiting.append((since, eid))
+
     return min(waiting)[1] if waiting else None
 
 
@@ -280,6 +306,7 @@ async def _turn(
     try:
         intents, error = await think(world, mind)
         if error:
+            cast.misses[mind.entity] = cast.misses.get(mind.entity, 0) + 1
             # Printed only when it changes. A being whose endpoint is down
             # fails every turn, and a line every second and a half would bury
             # the world's own output — but saying nothing at all is worse,
@@ -292,6 +319,7 @@ async def _turn(
             if mind.entity in cast.trouble:
                 print(f"[andropia] {mind.entity}: recovered")
             cast.trouble.pop(mind.entity, None)
+            cast.misses.pop(mind.entity, None)
         if intents:
             propose(intents)
     except asyncio.CancelledError:
@@ -330,6 +358,7 @@ __all__ = [
     "Cast",
     "Mind",
     "Model",
+    "backoff",
     "drive",
     "next_speaker",
     "personas",
