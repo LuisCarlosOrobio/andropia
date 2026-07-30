@@ -27,7 +27,7 @@ import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from ..sim.types import EntityId, Intent, Remember, Speak, World
+from ..sim.types import EntityId, Goto, Intent, Remember, Speak, World
 from . import perception, prompt, protocol
 from .adapter import ENV_BASE_URL, ENV_KEY, ENV_MODEL, Brain, Model
 
@@ -91,6 +91,13 @@ class Cast:
     trouble: dict[EntityId, str] = field(default_factory=dict)
     #: Consecutive failed turns per being, which drives the backoff.
     misses: dict[EntityId, int] = field(default_factory=dict)
+    #: Places a being tried to walk to that do not exist, most recent first.
+    #:
+    #: Diagnostic, not state: an unresolvable ``Goto`` is dropped by ``step``,
+    #: which is correct — a landmark that is not there cannot be walked to — but
+    #: it is dropped *silently*, and silence here is indistinguishable from a
+    #: being that never tried to move at all.
+    unreachable: dict[EntityId, str] = field(default_factory=dict)
 
     @classmethod
     def of(cls, *minds: Mind) -> Cast:
@@ -213,6 +220,21 @@ def turn_memory(intents: tuple[Intent, ...], limit: int = MEMORY_CHARS) -> str:
 # --------------------------------------------------------------------------
 
 
+def unresolved(world: World, intents: tuple[Intent, ...]) -> str | None:
+    """The first place a being tried to walk to that the world does not have.
+
+    Beings ask to go to "the rim", "past the rock", "the far edge" — none of
+    which are landmarks, so ``step`` discards the intent and the being stands
+    there having announced a journey. From the outside that is identical to a
+    being that never emitted a tag, which is why this is worth surfacing: the
+    two have completely different fixes.
+    """
+    for intent in intents:
+        if isinstance(intent, Goto) and intent.target not in world.landmarks:
+            return intent.target
+    return None
+
+
 async def think(
     world: World,
     mind: Mind,
@@ -321,6 +343,12 @@ async def _turn(
             cast.trouble.pop(mind.entity, None)
             cast.misses.pop(mind.entity, None)
         if intents:
+            missing = unresolved(world, intents)
+            if missing is not None:
+                cast.unreachable[mind.entity] = missing
+                print(f"[andropia] {mind.entity}: no place called {missing!r}")
+            else:
+                cast.unreachable.pop(mind.entity, None)
             propose(intents)
     except asyncio.CancelledError:
         raise
@@ -363,6 +391,7 @@ __all__ = [
     "next_speaker",
     "personas",
     "think",
+    "unresolved",
     "turn_memory",
     "wants_turn",
 ]

@@ -28,6 +28,7 @@ def main() -> int:
     seen = 0
     trouble: dict[str, str] = {}
     doing: dict[str, tuple] = {}
+    unreachable: dict[str, str] = {}
     driver: str | None = None
     print(f"tailing {URL}  (ctrl-c to stop)\n")
 
@@ -80,6 +81,14 @@ def main() -> int:
                         bits.append(f"looking at {state['gaze']}")
                     print(f"     {'':8} {being:<8} ({', '.join(bits)})")
                 doing[being] = now
+
+        for being, place in sorted(data.get("unreachable", {}).items()):
+            if unreachable.get(being) != place:
+                print(f"     ?? {being}: tried to walk to {place!r} — no such place")
+                unreachable[being] = place
+        for being in tuple(unreachable):
+            if being not in data.get("unreachable", {}):
+                del unreachable[being]
 
         for being, message in sorted(data.get("trouble", {}).items()):
             if trouble.get(being) != message:

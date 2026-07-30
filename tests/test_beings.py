@@ -305,6 +305,53 @@ async def test_a_failed_turn_counts_toward_the_backoff():
             assert cast.misses["ava"] == expected
 
 
+def test_a_goto_nowhere_is_reported_rather_than_silently_dropped():
+    """Beings ask to walk to places the world does not have.
+
+    A live run had them announce "I'll walk the rim", "past the rock", "the
+    flat" — none of which are landmarks, so `step` discards the intent and the
+    being stands there having announced a journey. From outside that is
+    identical to a being that never emitted a tag at all, and the two have
+    completely different fixes.
+    """
+    from andropia.sim.types import Goto
+
+    world = a_world()
+    assert runner.unresolved(world, (Goto(entity="ava", target="the rim"),)) == "the rim"
+    assert runner.unresolved(world, (Goto(entity="ava", target="pond"),)) is None
+
+
+def test_a_reachable_goto_reports_nothing():
+    from andropia.sim.types import DoGesture, Speak
+
+    world = a_world()
+    intents = (Speak(entity="ava", text="hi"), DoGesture(entity="ava", motion="nod"))
+    assert runner.unresolved(world, intents) is None
+
+
+async def test_an_unreachable_place_is_recorded_against_the_being():
+    world = a_world(tick=runner.IDLE_THINK_TICKS + 1)
+    cast = Cast()
+
+    async with transport(completion("Off to the rim.[goto:the_rim]")) as client:
+        cast.minds["ava"] = mind("ava", client)
+        await runner._turn(world, cast.minds["ava"], cast, lambda _: None)
+
+    assert cast.unreachable["ava"] == "the_rim"
+
+
+async def test_reaching_somewhere_real_clears_the_record():
+    world = a_world(tick=runner.IDLE_THINK_TICKS + 1)
+    cast = Cast()
+    cast.unreachable["ava"] = "the_rim"
+
+    async with transport(completion("[goto:pond]")) as client:
+        cast.minds["ava"] = mind("ava", client)
+        await runner._turn(world, cast.minds["ava"], cast, lambda _: None)
+
+    assert "ava" not in cast.unreachable
+
+
 # -- memory ----------------------------------------------------------------
 
 

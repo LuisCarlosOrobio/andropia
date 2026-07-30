@@ -214,6 +214,10 @@ def create_app(
                 for eid, ent in sorted(world.entities.items())
             },
             "trouble": dict(hub.cast.trouble) if hub.cast else {},
+            # Places beings tried to walk to that do not exist. A being that
+            # announced a journey and stayed put looks identical to one that
+            # never tried, and the two have different fixes.
+            "unreachable": dict(hub.cast.unreachable) if hub.cast else {},
         }
 
     @app.post("/api/control/{command}")
