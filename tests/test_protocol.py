@@ -57,21 +57,46 @@ def test_hyphens_are_allowed_in_values():
     assert tags(p.parse("[goto:old-tree]")) == [("goto", "old-tree")]
 
 
-def test_malformed_brackets_stay_prose():
-    # A being may legitimately write brackets. None of these is a tag, and
-    # none of them should cost the sentence around it.
+def test_malformed_brackets_are_dropped_rather_than_spoken():
+    """This was the other way round at first.
+
+    The reasoning was that a being might legitimately write brackets, and
+    silently eating text is the harder bug to notice. Two live runs settled it:
+    every bracket a model produced was a protocol artefact, and none was ever
+    speech. An avatar saying "[pause, thinking]" out loud is the worse failure.
+    """
     for source in ("[]", "[a:b:c]", "[ spaced ]", "[:value]", "[name:]"):
         assert tags(p.parse(source)) == [], source
-        assert texts(p.parse(source)) == source, source
+        assert texts(p.parse(source)) == "", source
 
 
-def test_unterminated_bracket_is_released_as_prose():
-    # Discarding would silently eat text, which is the harder bug to notice.
-    assert texts(p.parse("look at this [")) == "look at this ["
+def test_the_two_leaks_that_actually_happened():
+    # A stage direction, and the prompt's own placeholder syntax copied back.
+    assert texts(p.parse("[pause, thinking]")) == ""
+    assert texts(p.parse("[look:<name>coden]")) == ""
+
+
+def test_the_sentence_around_a_dropped_bracket_survives():
+    # Only the fragment goes. Losing the aside is the accepted cost; losing the
+    # sentence would not be.
+    assert texts(p.parse("I found it [the rock] over there")) == "I found it  over there"
+
+
+def test_an_unterminated_tag_is_discarded_at_the_end_of_a_stream():
+    """The carry only ever holds a fragment short enough to still be a tag, so
+    what is left at the end is a tag the model started and never closed —
+    usually because the reply hit its token ceiling. Saying "[goto:po" aloud is
+    not a recovery."""
+    assert texts(p.parse("truncated [goto:po")) == "truncated "
 
 
 def test_a_stray_bracket_does_not_swallow_the_reply():
-    # The bound exists so one syntax slip costs a tag, never the turn.
+    """The bound exists so one syntax slip costs a tag, never the turn.
+
+    A bracket that grows past the limit is released as prose rather than
+    dropped, precisely because at that length it is no longer a plausible tag —
+    dropping it would eat a whole sentence.
+    """
     long_tail = "x" * (p.MAX_TAG_LENGTH * 3)
     assert texts(p.parse(f"[{long_tail}")) == f"[{long_tail}"
 
@@ -108,6 +133,11 @@ STREAMS = (
     "[" + "x" * (p.MAX_TAG_LENGTH * 2) + " then [happy] a real one",
     # A tag whose body straddles the limit exactly.
     "[" + "y" * p.MAX_TAG_LENGTH + "] and [motion:nod]",
+    # The two malformed brackets a live model actually produced. Dropping has
+    # to fold identically to parsing whole, or a chunk boundary inside one
+    # changes whether it is spoken.
+    "Right then. [pause, thinking] So the moss —",
+    "[look:<name>coden] You said the tree, then the pond.",
 )
 
 

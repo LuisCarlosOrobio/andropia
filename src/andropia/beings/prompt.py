@@ -106,10 +106,15 @@ def _vocabulary() -> str:
             "Gestures — one-shot movements:",
             "  " + "  ".join(f"[motion:{g}]" for g in GESTURES),
             "",
-            "Moving and looking:",
-            "  [goto:<place>]   walk to somewhere you can see",
-            "  [look:<name>]    turn your gaze to a being or place",
-            "  [look:away]      stop looking at anything in particular",
+            # Stand-ins the grammar accepts, not angle-bracket placeholders.
+            # A live run produced "[look:<name>coden]" — the model copied the
+            # placeholder syntax verbatim, the grammar rejected it, and the
+            # being said it out loud. A prompt that demonstrates invalid syntax
+            # will get invalid syntax back, and the fault is the prompt's.
+            "Moving and looking — replace the example name with a real one:",
+            "  [goto:placename]  walk to a place you can see",
+            "  [look:somebody]   turn your gaze to a being or a place",
+            "  [look:away]       stop looking at anything in particular",
         )
     )
 

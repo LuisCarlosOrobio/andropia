@@ -39,19 +39,22 @@ def test_every_tag_the_prompt_teaches_is_one_the_grammar_accepts():
     tag in the grammar the prompt never mentions is a capability no being
     discovers. Both are invisible without this.
     """
-    taught = set(re.findall(r"\[([a-z_]+(?::[a-z_<>]+)?)\]", pr.RULES))
+    taught = set(re.findall(r"\[([^\]]+)\]", pr.RULES))
     assert taught, "found no tags in the prompt at all"
 
     for tag in taught:
-        # Placeholders stand for a value the being fills in; substitute a real
-        # one so the grammar has something to chew on.
-        concrete = (
-            tag.replace("<place>", "pond").replace("<name>", "bob")
-            if "<" in tag
-            else tag
-        )
-        intents = protocol.to_intents(protocol.parse(f"[{concrete}]"), "ava")
+        intents = protocol.to_intents(protocol.parse(f"[{tag}]"), "ava")
         assert intents, f"the prompt teaches [{tag}] but the grammar ignores it"
+
+
+def test_the_prompt_never_demonstrates_syntax_the_grammar_rejects():
+    """A live run produced "[look:<name>coden]" — the model copied the prompt's
+    angle-bracket placeholder verbatim, the grammar rejected it, and the being
+    said it out loud. A prompt that demonstrates invalid syntax gets invalid
+    syntax back, and the fault is the prompt's."""
+    for example in re.findall(r"\[([^\]]+)\]", pr.RULES):
+        assert protocol.parse(f"[{example}]")[0].kind == "tag", example
+    assert "<" not in pr.RULES and ">" not in pr.RULES
 
 
 def test_every_emotion_and_gesture_appears_in_the_prompt():

@@ -130,9 +130,19 @@ def feed(carry: str, chunk: str) -> tuple[tuple[Event, ...], str]:
 
         tag = _tag(buffer[i + 1 : close])
         if tag is None:
-            # Well-bracketed but not a well-formed tag — "[]", "[a:b:c]".
-            # Prose, not an error: a being may legitimately write brackets.
-            i += 1
+            # Well-bracketed but malformed — "[]", "[a:b:c]", "[pause, thinking]",
+            # "[look:<name>coden]". Dropped rather than spoken.
+            #
+            # This was the other way round at first, on the reasoning that a
+            # being might legitimately write brackets and eating text silently is
+            # the harder bug to notice. Two live runs settled it: every bracket a
+            # model produced was a protocol artefact — a stage direction, or the
+            # prompt's own placeholder syntax copied literally — and none was
+            # ever speech. An avatar saying "[pause, thinking]" out loud is a
+            # worse failure than losing the odd aside in brackets.
+            _flush(events, buffer[start:i])
+            i = close + 1
+            start = i
             continue
 
         _flush(events, buffer[start:i])
@@ -145,16 +155,15 @@ def feed(carry: str, chunk: str) -> tuple[tuple[Event, ...], str]:
 
 
 def finish(carry: str) -> tuple[Event, ...]:
-    """Close a stream, releasing an unterminated tag as the prose it turned
-    out to be.
+    """Close a stream, discarding an unterminated tag.
 
-    Discarding it would be the other option, and worse: an unclosed bracket is
-    far more likely to be a being writing about ``[`` than a tag that never
-    arrived, and silently eating text is the harder bug to notice.
+    The carry only ever holds a fragment short enough to still be a tag — a
+    bracket that grows past :data:`MAX_TAG_LENGTH` has already been released as
+    prose. So what is left here is a tag the model started and never closed,
+    most often because the reply hit its token ceiling mid-word. Speaking
+    "[goto:po" aloud is not a recovery.
     """
-    events: list[Event] = []
-    _flush(events, carry)
-    return tuple(events)
+    return ()
 
 
 def _flush(events: list[Event], text: str) -> None:
