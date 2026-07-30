@@ -200,7 +200,7 @@ Without it the world still runs; beings appear as capsules.
 | `worlds/` | Bundled places — [`worlds/README.md`](worlds/README.md). |
 
 ```bash
-make check   # 388 Python tests, 143 JS tests, none need a browser
+make check   # 390 Python tests, 143 JS tests, none need a browser
 ```
 
 ## Status
