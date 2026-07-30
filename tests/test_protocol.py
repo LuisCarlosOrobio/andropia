@@ -250,11 +250,27 @@ def test_an_utterance_with_no_words_is_silence():
         assert p.to_intents(p.parse(noise), "ava") == (), noise
 
 
-def test_asterisks_inside_a_sentence_survive():
-    # Only the edges are stripped. An asterisk mid-sentence may be doing real
-    # work, and deleting words is worse than leaving a stray mark in one.
-    said = p.to_intents(p.parse("It costs 5 * 3 coins."), "ava")[0].text
-    assert said == "It costs 5 * 3 coins."
+def test_emphasis_inside_a_sentence_is_stripped_too():
+    """The second half of the same bug, found in a later live run.
+
+    An avatar said "You're going *to* the rock?" — asterisks and all — because
+    the edge strip does not reach into a sentence. The markers come off; the
+    words between them never do.
+    """
+    for source, spoken in (
+        ("You're going *to* the rock?", "You're going to the rock?"),
+        ("somewhere to *go*.", "somewhere to go."),
+        ("**bold** and *italic*", "bold and italic"),
+    ):
+        assert p.to_intents(p.parse(source), "ava")[0].text == spoken, source
+
+
+def test_arithmetic_is_not_mistaken_for_emphasis():
+    # An opening marker must be followed by a non-space, which is what keeps
+    # "5 * 3" intact. Eating a digit would be a far worse failure than showing
+    # a stray asterisk.
+    for source in ("It costs 5 * 3 coins.", "a * b * c"):
+        assert p.to_intents(p.parse(source), "ava")[0].text == source, source
 
 
 def test_every_vocabulary_word_round_trips():

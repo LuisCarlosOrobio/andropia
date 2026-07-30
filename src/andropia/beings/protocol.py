@@ -29,6 +29,7 @@ between calls.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
@@ -220,25 +221,35 @@ def to_intents(events: tuple[Event, ...], eid: EntityId) -> tuple[Intent, ...]:
     return ((Speak(entity=eid, text=text),) if text else ()) + tuple(intents)
 
 
-#: Markdown emphasis, which models produce habitually and which this project
-#: has no use for — every line here is spoken aloud, and nothing reads emphasis.
+#: Emphasis markers to shed from the edges of an utterance.
 _EMPHASIS = "*_ \t\r\n"
+
+#: Paired emphasis around a run of text: ``*to*``, ``**a whole forest**``.
+#:
+#: The opening marker must be followed by a non-space, which is what keeps
+#: arithmetic intact — in ``5 * 3`` the asterisk has a space after it, so this
+#: does not match and no digits are eaten.
+_WRAPPED = re.compile(r"\*+([^*\s][^*]*?)\*+")
 
 
 def _spoken(text: str) -> str:
     """What a being actually says, once formatting is discounted.
 
-    Models wrap things in Markdown without being asked. A live run produced
-    ``**[look:pond]``: the tag parsed correctly, and the two asterisks became an
-    utterance — a being stood by a pond and said "**", which the renderer duly
-    put in a speech bubble.
+    Models emit Markdown without being asked, and nothing downstream reads it —
+    every line here is spoken aloud by a body. Two live failures, in order of
+    discovery:
 
-    So emphasis markers are stripped from the edges, and an utterance left with
-    no letters or digits at all is silence rather than punctuation. Only the
-    edges: an asterisk inside a sentence might be doing real work, and deleting
-    words is worse than leaving a stray mark in one.
+    ``**[look:pond]``. The tag parsed correctly and the asterisks became the
+    utterance, so a being stood by a pond and said "**" into a speech bubble.
+    Edge markers are stripped, and an utterance left with no letters or digits
+    is silence rather than punctuation.
+
+    ``You're going *to* the rock?``. Emphasis mid-sentence, which the edge strip
+    does not reach, so an avatar said the asterisks out loud. Paired markers now
+    come off too — the markers only, never the words between them, because
+    losing a word is a worse failure than showing a stray mark.
     """
-    trimmed = text.strip(_EMPHASIS)
+    trimmed = _WRAPPED.sub(r"\1", text).strip(_EMPHASIS)
     return trimmed if any(ch.isalnum() for ch in trimmed) else ""
 
 
