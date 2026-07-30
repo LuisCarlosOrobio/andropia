@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+
+  "id": "example",
+  "name": "The Example",
+
+  "_comment": "A fixture, not a place worth visiting. It exists to use every shape and several materials, so that a shape this schema accepts and the renderer does not implement fails a test rather than producing an invisible landmark. Both the Python and the JavaScript test suites read this file.",
+
+  "atmosphere": "A plain worked over by someone testing what a world can contain.",
+
+  "ground": {
+    "colour": "#3f4a38",
+    "extent": 160,
+    "grid": false,
+    "description": "short dry grass over packed earth"
+  },
+
+  "sky": {
+    "colour": "#7fa3c0",
+    "fog": [40, 120],
+    "description": "a pale overcast sky"
+  },
+
+  "light": {
+    "key": 2.2,
+    "sky_colour": "#cfe3f0",
+    "ground_colour": "#3a4a35"
+  },
+
+  "features": [
+    {
+      "id": "pond",
+      "pos": [-8, 0, 3],
+      "shape": "disc",
+      "radius": 3.5,
+      "colour": "#2f5d78",
+      "material": "water",
+      "enterable": true,
+      "description": "a shallow pond, cold and clear to the bottom"
+    },
+    {
+      "id": "altar",
+      "pos": [5, 0, 9],
+      "shape": "block",
+      "radius": 1.2,
+      "height": 0.9,
+      "colour": "#6b6f74",
+      "material": "stone",
+      "description": "a squared block of grey stone, waist high"
+    },
+    {
+      "id": "post",
+      "pos": [12, 0, -4],
+      "shape": "column",
+      "radius": 0.3,
+      "height": 3.4,
+      "colour": "#6b563a",
+      "material": "wood",
+      "description": "a weathered wooden post, taller than a person"
+    },
+    {
+      "id": "bank",
+      "pos": [-2, 0, -11],
+      "shape": "mound",
+      "radius": 4.0,
+      "height": 1.6,
+      "colour": "#4a5f3a",
+      "material": "grass",
+      "enterable": true,
+      "description": "a low grassy bank you can walk up"
+    }
+  ],
+
+  "license": {
+    "id": "CC0-1.0",
+    "attribution": "Andropia",
+    "notice": "Numbers written for this project. No third-party asset is involved, which is the point of a parametric world pack: there is nothing here to have provenance."
+  }
+}

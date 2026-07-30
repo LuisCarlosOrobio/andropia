@@ -17,11 +17,17 @@ from andropia.sim.types import Entity, Landmark, Memory, Utterance, Vec3, World
 from andropia.vocab import EMOTIONS, GESTURES
 
 
-def a_world(**over):
+def a_world(setting="A wet green meadow under a blue sky.", **over):
+    """A world with a setting, because every world now has one.
+
+    Worlds are built from packs, and a pack always describes its ground and its
+    sky. The setting-less world is the degenerate case and gets its own test.
+    """
     me = Entity(id="ava", persona="You are curious.", **over)
     return World(
         entities={"ava": me, "bob": Entity(id="bob", pos=Vec3(0.0, 0.0, 2.0))},
         landmarks={"pond": Landmark("pond", Vec3(0.0, 0.0, 6.0), "the pond")},
+        setting=setting,
     )
 
 
@@ -102,25 +108,31 @@ def test_the_prompt_is_ordered_place_then_person_then_situation():
     assert msgs[-1].role == "user"
 
 
-def test_an_empty_setting_is_stated_rather_than_skipped():
+def test_not_inventing_is_a_standing_rule_rather_than_a_fact_about_one_world():
     """A being told nothing about the place invents one.
 
     Three of them once spent two minutes reporting the falling water level of a
-    pond that is a point on a flat plane. "There is nothing here" is a fact
-    about the world, and beings should have it.
+    pond that is a point on a flat plane. The instruction not to do that first
+    lived in the setting message, which meant it applied only while the world
+    was empty — exactly backwards, since a described world gives a being more
+    material to embroider, not less.
     """
-    where = messages_for(a_world())[1].content
-    assert "Nothing has been built here yet" in where
-    assert "Do not invent" in where
+    assert "Do not invent" in pr.RULES
+    for world in (a_world(), a_world(setting="")):
+        assert "Do not invent" in messages_for(world)[0].content
 
 
-def test_a_declared_setting_replaces_the_empty_one():
-    from dataclasses import replace
+def test_a_world_with_no_pack_gets_no_setting_message():
+    # Rather than a paragraph asserting the absence of things. What is true of
+    # every world belongs in the rules; the setting states only what is here.
+    msgs = messages_for(a_world(setting=""))
+    assert not any(m.content.startswith("Where you are:") for m in msgs)
+    assert "Your name is ava" in msgs[1].content
 
-    world = replace(a_world(), setting="A wet green meadow under a blue sky.")
-    where = messages_for(world)[1].content
-    assert "A wet green meadow" in where
-    assert "Nothing has been built" not in where
+
+def test_a_declared_setting_is_carried_verbatim():
+    where = messages_for(a_world(setting="A wet green meadow."))[1].content
+    assert where == "Where you are:\n\nA wet green meadow."
 
 
 def test_the_setting_extends_the_prefix_every_being_shares():
@@ -159,7 +171,7 @@ def test_persona_is_carried_into_the_prompt():
 
 
 def test_a_being_with_no_persona_still_gets_a_usable_prompt():
-    world = World(entities={"ava": Entity(id="ava")})
+    world = World(entities={"ava": Entity(id="ava")}, setting="Bare ground.")
     msgs = pr.messages(world.entities["ava"], per.observe(world, "ava"))
     assert "Your name is ava" in msgs[2].content
     assert msgs[0].content == pr.RULES

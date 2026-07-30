@@ -32,7 +32,7 @@ sides.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
 SCHEMA_VERSION = 1
@@ -93,7 +93,16 @@ class Sky:
 
 @dataclass(frozen=True, slots=True)
 class Light:
+    """The two lights every world has: one directional, one from the sky.
+
+    ``key`` is the sun. ``ambient`` is how much light arrives from everywhere
+    else, which is the difference between a bright overcast afternoon and the
+    same geometry lit like a stage. Colour comes in two halves because a
+    hemisphere light takes a colour from above and one bounced off the ground.
+    """
+
     key: float = 2.0
+    ambient: float = 0.6
     sky_colour: str = "#9fb8cc"
     ground_colour: str = "#1a1f24"
 
@@ -154,6 +163,11 @@ class WorldError:
 class Invalid:
     errors: tuple[WorldError, ...]
 
+    #: Always empty, and present so that `warnings` can be read off any result
+    #: without first asking which kind it is. A caller reporting problems wants
+    #: both, and the alternative is a branch at every call site.
+    warnings: tuple[str, ...] = ()
+
     ok: Literal[False] = False
 
     def __str__(self) -> str:
@@ -165,6 +179,9 @@ class Invalid:
 class Valid:
     pack: WorldPack
     warnings: tuple[str, ...] = ()
+
+    #: Likewise always empty: a caller can ask any result for its errors.
+    errors: tuple[WorldError, ...] = ()
 
     ok: Literal[True] = True
 
@@ -213,6 +230,21 @@ def validate(raw: Any) -> Result:
     light, light_errors = _light(raw.get("light", {}))
     features, feature_errors, warnings = _features(raw.get("features", []))
     atmosphere, atmosphere_errors = _atmosphere(raw.get("atmosphere", ""))
+
+    # A key the format does not read is a declaration that quietly does nothing.
+    warnings += (
+        # `schema` is the version, which is not a field of the pack itself.
+        *_unknown(raw, WorldPack, "", extra=("schema",)),
+        *_unknown(raw.get("license"), License, "license."),
+        *_unknown(raw.get("ground"), Ground, "ground."),
+        *_unknown(raw.get("sky"), Sky, "sky."),
+        *_unknown(raw.get("light"), Light, "light."),
+        *(
+            warning
+            for i, feature in enumerate(raw.get("features") or ())
+            for warning in _unknown(feature, Feature, f"features[{i}].")
+        ),
+    )
 
     errors = (
         *_version(raw.get("schema")),
@@ -271,6 +303,35 @@ def _atmosphere(raw: Any) -> tuple[str, tuple[WorldError, ...]]:
     if not isinstance(raw, str):
         return "", (WorldError("atmosphere", "must be a string"),)
     return raw.strip(), NO_ERRORS
+
+
+def _unknown(
+    raw: Any, cls: type, where: str, extra: tuple[str, ...] = ()
+) -> tuple[str, ...]:
+    """Keys the format does not read, as warnings.
+
+    The known set is the dataclass's own field names rather than a written
+    list, so it cannot drift from what the loader actually uses — the same
+    reason the prompt generates its vocabulary from :mod:`andropia.vocab`.
+
+    Worth having because this cost a crash to discover: a manifest declared
+    ``light.ambient`` before ``ambient`` existed, validation passed, and the
+    value silently did nothing. Silence is the failure mode this whole format
+    exists to remove.
+
+    A warning rather than an error, so a manifest written against a later
+    schema still loads here. Keys beginning with ``_`` are comments — which is
+    how these manifests explain themselves.
+    """
+    if not isinstance(raw, dict):
+        return ()
+
+    known = {f.name for f in fields(cls)} | set(extra)
+    return tuple(
+        f"{where}{key} is not a field this format reads, and was ignored"
+        for key in sorted(raw)
+        if not key.startswith("_") and key not in known
+    )
 
 
 def _license(raw: Any) -> tuple[License, tuple[WorldError, ...]]:
@@ -359,14 +420,15 @@ def _light(raw: Any) -> tuple[Light, tuple[WorldError, ...]]:
         return Light(), (WorldError("light", "must be an object"),)
 
     key, bad_key = _number(raw.get("key", 2.0), "light.key", low=0.0)
+    amb, bad_amb = _number(raw.get("ambient", 0.6), "light.ambient", low=0.0)
     sky, bad_sky = _colour(raw.get("sky_colour", "#9fb8cc"), "light.sky_colour")
     ground, bad_ground = _colour(
         raw.get("ground_colour", "#1a1f24"), "light.ground_colour"
     )
 
     return (
-        Light(key=key, sky_colour=sky, ground_colour=ground),
-        (*bad_key, *bad_sky, *bad_ground),
+        Light(key=key, ambient=amb, sky_colour=sky, ground_colour=ground),
+        (*bad_key, *bad_amb, *bad_sky, *bad_ground),
     )
 
 

@@ -68,27 +68,22 @@ def _where(obs: Observation) -> tuple[Message, ...]:
     A being told the names of things and nothing about the place will invent
     one. Three of them once spent two minutes reporting the falling water level
     of a pond that is a point on a flat plane, having agreed on a glowing seam
-    in a rock that does not have one. None of it contradicted anything they
-    were told, because they were told nothing.
+    in a rock that does not have one. None of it contradicted anything they were
+    told, because they were told nothing.
 
-    So an empty setting is not silently skipped — it is stated. "There is
-    nothing here" is a fact about the world and beings should have it.
+    This text is generated from the world pack by
+    :mod:`andropia.worlds.describe`, so the sentence about the ground and the
+    colour the floor is painted come from the same field. That is the whole
+    point of the format: one declaration renders and describes.
+
+    A world with no pack gets no message at all, and the standing rule against
+    inventing covers it. That rule belongs with how to behave rather than with
+    where a being happens to be standing — it was here, and so applied only
+    while the world was empty, which is exactly backwards.
     """
-    if obs.setting.strip():
-        return (Message("system", f"Where you are:\n\n{obs.setting.strip()}"),)
-    return (
-        Message(
-            "system",
-            "Where you are:\n\n"
-            "Nothing has been built here yet. The ground is bare and level, "
-            "there is no sky to speak of, no water, no plants, no weather, and "
-            "no sound but each other. The only things that exist are the beings "
-            "present and the few places named below. Do not invent scenery, "
-            "objects, creatures, or detail that you have not been told about — "
-            "if you want to know what something is like, the honest answer is "
-            "that there is nothing there to describe.",
-        ),
-    )
+    if not obs.setting.strip():
+        return ()
+    return (Message("system", f"Where you are:\n\n{obs.setting.strip()}"),)
 
 
 # --------------------------------------------------------------------------
@@ -153,6 +148,12 @@ Keep it to a sentence or two. This is conversation, not correspondence.
 You can only refer to beings and places you can currently see, by exactly the \
 names you are given. Somewhere you visited before is not visible now.
 
+Describe only what you have been told is here. Do not invent scenery, objects, \
+creatures, weather or detail you were not given — if you want to know what \
+something is like and have not been told, the honest answer is that there is \
+nothing there to describe. Saying so is more use to the others than filling \
+the gap.
+
 Nothing obliges you to be agreeable, helpful, or busy. You have your own \
 reasons for what you do.\
 """
@@ -205,7 +206,11 @@ def situation(obs: Observation) -> str:
         parts.append("\nPlaces you can see:")
         for p in obs.places:
             described = f" ({p.description})" if p.description else ""
-            parts.append(f"- {p.name}{described}, {p.proximity}, {p.bearing}")
+            made = f", {p.material}" if p.material else ""
+            enter = ", and you can walk into it" if p.enterable else ""
+            parts.append(
+                f"- {p.name}{described}{made}, {p.proximity}, {p.bearing}{enter}"
+            )
 
     if obs.heard:
         parts.append("\nRecently said nearby:")

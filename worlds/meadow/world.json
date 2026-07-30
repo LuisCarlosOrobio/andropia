@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+
+  "id": "meadow",
+  "name": "The Meadow",
+
+  "_comment": "The world the demo runs in. Every number here is read twice: once by src/andropia/worlds/build.py and describe.py, which turn it into landmarks and into the paragraph beings are given, and once by frontend/src/world.js, which draws it. That is the whole reason this file exists — a description and a scene that are two sources of truth will disagree, and the disagreement surfaces as beings discussing the water level of a pond that is a point on a flat plane.",
+
+  "atmosphere": "Late afternoon, warm and still, some hours after rain.",
+
+  "ground": {
+    "colour": "#4a6b3a",
+    "extent": 200,
+    "grid": false,
+    "description": "damp grass, long enough to move underfoot, soft where it has held the rain"
+  },
+
+  "sky": {
+    "colour": "#9dbdd6",
+    "fog": [45, 130],
+    "description": "a wide pale sky going gold at the edges"
+  },
+
+  "light": {
+    "key": 2.4,
+    "ambient": 0.55,
+    "sky_colour": "#dbe9f2",
+    "ground_colour": "#48633a"
+  },
+
+  "features": [
+    {
+      "id": "pond",
+      "pos": [-9, 0, 4],
+      "shape": "disc",
+      "radius": 4.5,
+      "colour": "#35617a",
+      "material": "water",
+      "enterable": true,
+      "description": "a broad shallow pond, still enough to hold the sky, cold at the ankle"
+    },
+    {
+      "id": "reeds",
+      "pos": [-13, 0, 1],
+      "shape": "mound",
+      "radius": 2.2,
+      "height": 2.3,
+      "colour": "#6d7a3c",
+      "material": "grass",
+      "enterable": true,
+      "description": "a dense stand of reeds at the pond's far edge, over head height"
+    },
+    {
+      "id": "rock",
+      "pos": [6, 0, 9],
+      "shape": "block",
+      "radius": 1.6,
+      "height": 0.8,
+      "colour": "#6a6f68",
+      "material": "stone",
+      "description": "a flat mossy rock, wide enough to sit on and warm on top"
+    },
+    {
+      "id": "post",
+      "pos": [13, 0, -5],
+      "shape": "column",
+      "radius": 0.28,
+      "height": 2.9,
+      "colour": "#6b563a",
+      "material": "wood",
+      "description": "a lone fence post, grey with weather, with nothing fenced to either side"
+    },
+    {
+      "id": "rise",
+      "pos": [2, 0, -14],
+      "shape": "mound",
+      "radius": 7.0,
+      "height": 2.1,
+      "colour": "#527040",
+      "material": "grass",
+      "enterable": true,
+      "description": "a long low rise in the ground, gentle enough to walk straight up"
+    }
+  ],
+
+  "license": {
+    "id": "CC0-1.0",
+    "attribution": "Andropia",
+    "notice": "Numbers written for this project. A parametric world pack has no third-party asset in it, which is what makes it safe to ship with the source."
+  }
+}

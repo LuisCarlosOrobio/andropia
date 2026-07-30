@@ -63,6 +63,12 @@ class Place:
     bearing: str
     proximity: str
     description: str = ""
+    #: What it is made of, and whether a being can walk into it. Straight from
+    #: the world pack. These two fields are the answer to "is it wet" — the
+    #: question three beings once settled by consensus rather than by looking,
+    #: because nothing could tell them.
+    material: str = ""
+    enterable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,8 +176,12 @@ def _see_place(self_, mark) -> Place | None:
         name=mark.id,
         distance=distance,
         bearing=_bearing(self_.facing, offset, distance),
-        proximity=_proximity(distance),
+        # Measured to the edge, not the centre: a wide place is nearer than its
+        # middle, and a being standing on the bank of a pond is at the pond.
+        proximity=_proximity(max(0.0, distance - mark.radius)),
         description=mark.description,
+        material=mark.material,
+        enterable=mark.enterable,
     )
 
 

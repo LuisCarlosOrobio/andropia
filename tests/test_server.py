@@ -26,6 +26,20 @@ def whoever(world=None, n=0):
 A, B, C = (whoever(n=i) for i in range(3))
 
 
+def somewhere(world=None, n=0):
+    """The nth landmark in the demo world, by id.
+
+    Same reasoning as `whoever`: the demo world's landmarks come from
+    `worlds/meadow/world.json` now, and a test that hardcodes `tree` breaks the
+    moment someone edits the pack — which would make the world pack format more
+    expensive to use than the constants it replaced.
+    """
+    return sorted((world or demo_world()).landmarks)[n]
+
+
+PLACE = somewhere()
+
+
 @pytest.fixture
 def client():
     with TestClient(create_app(demo_world())) as c:
@@ -136,7 +150,7 @@ def test_connect_receives_scene_then_frame(client):
         frame = ws.receive_json()
 
     assert scene["type"] == "scene"
-    assert {m["id"] for m in scene["landmarks"]} == {"tree", "pond", "rock"}
+    assert {m["id"] for m in scene["landmarks"]} == set(demo_world().landmarks)
     assert scene["dt"] == 0.05
 
     assert frame["type"] == "frame"
@@ -172,7 +186,10 @@ def test_intent_over_the_view_socket(client):
         ws.receive_json()
 
         ws.send_json(
-            {"type": "intent", "intent": {"kind": "goto", "entity": A, "target": "tree"}}
+            {
+                "type": "intent",
+                "intent": {"kind": "goto", "entity": A, "target": PLACE},
+            }
         )
         ws.send_json({"type": "step"})
         frame = ws.receive_json()
@@ -389,12 +406,82 @@ def test_transcript_reports_trouble_alongside_speech():
         }
 
 
+# --------------------------------------------------------------------------
+# world packs
+# --------------------------------------------------------------------------
+
+
+def test_the_demo_world_is_built_from_a_pack():
+    """The thing that fails silently otherwise.
+
+    A pack that does not load leaves beings on bare ground with no explanation.
+    That has happened once already, with a missing credential, and it cost an
+    evening working out why nobody was speaking.
+    """
+    world = demo_world()
+    assert world.world_pack == "meadow"
+    assert world.landmarks
+    assert world.setting.strip()
+
+
+def test_the_demo_setting_is_generated_rather_than_typed():
+    # The reason the format exists. A description someone typed while the scene
+    # was constants in `stage.js` could say "lush meadow" over a dark void.
+    from andropia.runtime.server import DEMO_WORLD_PACK, WORLDS_DIR
+    from andropia.worlds import describe, load
+
+    result = load.load_pack(WORLDS_DIR / DEMO_WORLD_PACK)
+    assert result.ok
+    assert demo_world().setting == describe.setting(result.pack)
+
+
+def test_worlds_lists_the_packs_it_found(client):
+    body = client.get("/api/worlds").json()
+    assert "meadow" in body["worlds"]
+    assert body["broken"] == {}
+
+
+def test_a_served_manifest_carries_what_the_renderer_needs(client):
+    """Whole rather than summarised. A world pack *is* its numbers — unlike an
+    avatar pack, where the payload is a file the browser fetches separately."""
+    meadow = client.get("/api/worlds").json()["worlds"]["meadow"]
+
+    assert meadow["ground"]["colour"].startswith("#")
+    assert meadow["sky"]["fog"]
+    assert meadow["light"]["key"] > 0
+    for feature in meadow["features"]:
+        assert {"id", "pos", "shape", "radius", "height", "colour"} <= set(feature)
+
+
+def test_the_scene_names_the_world_to_draw(client):
+    # The same arrangement as `pack` on an entity: an id on the wire, and the
+    # renderer fetches the manifest. Sending the scene itself twenty times a
+    # second would be waste, and sending it once here would duplicate the
+    # endpoint that already serves it.
+    with client.websocket_connect("/ws/view") as ws:
+        scene = ws.receive_json()
+    assert scene["world"] == "meadow"
+
+
+def test_every_landmark_on_the_wire_is_a_feature_in_the_manifest(client):
+    """The seam between the two projections.
+
+    Beings walk to landmarks; the renderer draws features. A landmark with no
+    feature is a place you can reach and cannot see, which is the same drift
+    this format removes, only in the other direction.
+    """
+    features = {f["id"] for f in client.get("/api/worlds").json()["worlds"]["meadow"]["features"]}
+    with client.websocket_connect("/ws/view") as ws:
+        scene = ws.receive_json()
+    assert {m["id"] for m in scene["landmarks"]} == features
+
+
 def test_transcript_reports_what_beings_are_doing_not_just_saying():
     """The characteristic failure of an action protocol.
 
     Tags are stripped before a line reaches the transcript, so speech alone
-    cannot distinguish a being that said "I'm going to the tree" and emitted
-    [goto:tree] from one that narrated the move and stood still.
+    cannot distinguish a being that said "I'm going to the pond" and emitted
+    a goto tag from one that narrated the move and stood still.
     """
     from andropia.runtime import session as sess
     from andropia.sim.types import Emote, Goto
@@ -404,7 +491,7 @@ def test_transcript_reports_what_beings_are_doing_not_just_saying():
         hub = app.state.hub
         hub.session = sess.propose(
             hub.session,
-            Goto(entity=B, target="tree"),
+            Goto(entity=B, target=PLACE),
             Emote(entity=A, emotion="surprised"),
         )
         hub.session = sess.tick(hub.session)

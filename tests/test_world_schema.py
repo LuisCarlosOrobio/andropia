@@ -8,6 +8,7 @@ grammar, because it is also the word a being types into ``[goto:...]``.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -266,6 +267,83 @@ def test_an_odd_enterable_material_warns_rather_than_fails():
     )
     assert result.ok
     assert any("enterable" in w for w in result.warnings)
+
+
+def test_a_key_the_format_does_not_read_is_reported():
+    """A field that silently does nothing is the failure mode this whole format
+    exists to remove.
+
+    Found the expensive way: a manifest declared `light.ambient` before
+    `ambient` existed, validation passed, the value did nothing, and the only
+    symptom was a crash somewhere else entirely.
+    """
+    result = schema.validate(a_manifest(light={"brightness": 3}))
+    assert result.ok  # a warning, so a newer manifest still loads on an older schema
+    assert any("light.brightness" in w for w in result.warnings)
+
+
+def test_an_unread_key_is_reported_at_every_level():
+    result = schema.validate(
+        a_manifest(
+            weather="rain",
+            ground={"texture": "grass"},
+            features=[a_feature(opacity=0.5)],
+        )
+    )
+    assert result.ok
+    reported = " ".join(result.warnings)
+    for key in ("weather", "ground.texture", "features[0].opacity"):
+        assert key in reported, key
+
+
+def test_comments_are_not_reported_as_unread_keys():
+    # `_comment` is how these manifests explain themselves, including the two
+    # shipped in this repo.
+    result = schema.validate(a_manifest(_comment="a note to a later reader"))
+    assert result.ok and not result.warnings
+
+
+def test_the_known_keys_come_from_the_dataclasses():
+    """So the check cannot drift from what the loader reads.
+
+    A written list of field names would be a second source of truth about the
+    format, which is the exact thing world packs exist to collapse.
+    """
+    for block, cls in (
+        ("ground", schema.Ground),
+        ("sky", schema.Sky),
+        ("light", schema.Light),
+    ):
+        for field in (f.name for f in dataclasses.fields(cls)):
+            result = schema.validate(a_manifest(**{block: {field: None}}))
+            assert not any(
+                f"{block}.{field}" in w for w in result.warnings
+            ), f"{block}.{field} is a real field and was called unread"
+
+
+def test_the_shipped_packs_declare_nothing_that_is_ignored():
+    for manifest in sorted(EXAMPLE.parent.parent.glob("worlds/*/world.json")):
+        result = schema.validate(json.loads(manifest.read_text()))
+        assert result.ok, [str(e) for e in result.errors]
+        assert not result.warnings, (manifest.parent.name, result.warnings)
+
+
+# -- lighting --------------------------------------------------------------
+
+
+def test_ambient_light_is_declarable():
+    """The difference between a bright overcast afternoon and the same geometry
+    lit like a stage."""
+    assert schema.validate(a_manifest(light={"ambient": 0.2})).pack.light.ambient == 0.2
+
+
+def test_ambient_light_has_a_default():
+    assert schema.validate(a_manifest()).pack.light.ambient > 0.0
+
+
+def test_negative_light_is_rejected():
+    for block in ({"key": -1}, {"ambient": -0.5}):
+        assert not schema.validate(a_manifest(light=block)).ok
 
 
 def test_a_wrong_schema_version_is_refused():

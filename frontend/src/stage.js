@@ -12,6 +12,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { wrapText } from './stage-text.js'
+import { build as buildWorld } from './world.js'
 import { bodyState } from './pose.js'
 
 const PLACEHOLDER_COLOUR = {
@@ -23,8 +24,12 @@ const PLACEHOLDER_COLOUR = {
 export class Stage {
   constructor(container) {
     this.scene = new THREE.Scene()
-    this.scene.background = new THREE.Color(0x0e1114)
-    this.scene.fog = new THREE.Fog(0x0e1114, 34, 95)
+    // Deliberately bare. The ground, the sky, the lights and everything
+    // standing on them arrive through `setWorld`, from a world pack, so the
+    // numbers that draw this place are the numbers beings are told about it.
+    // Until one arrives there is nothing to look at, which is honest.
+    this.world = null
+    this.groundPlane = null
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500)
     this.camera.position.set(8, 6, 11)
@@ -38,9 +43,6 @@ export class Stage {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
     this.controls.target.set(0, 1, 0)
-
-    this._lights()
-    this._ground()
 
     this.beings = new Map() // id -> { group, placeholder, body, label, speech }
     this.landmarks = new Map()
@@ -60,50 +62,35 @@ export class Stage {
     this.bodyCache = cache
   }
 
-  // -- construction ------------------------------------------------------
+  // -- the world ---------------------------------------------------------
 
-  _lights() {
-    this.scene.add(new THREE.HemisphereLight(0x9fb8cc, 0x1a1f24, 1.4))
+  /**
+   * Replace the world with the one this manifest declares.
+   *
+   * Repeatable by teardown: the previous world's geometry and materials are
+   * released before the next is built, so a viewer reconnecting to a restarted
+   * server gets a fresh scene rather than two worlds on the same ground.
+   */
+  setWorld(manifest) {
+    if (this.world) {
+      this.scene.remove(this.world)
+      release(this.world)
+    }
 
-    const key = new THREE.DirectionalLight(0xffffff, 2.0)
-    key.position.set(6, 12, 5)
-    key.castShadow = true
-    key.shadow.mapSize.set(2048, 2048)
-    key.shadow.camera.near = 1
-    key.shadow.camera.far = 60
-    const extent = 22
-    Object.assign(key.shadow.camera, {
-      left: -extent,
-      right: extent,
-      top: extent,
-      bottom: -extent,
-    })
-    key.shadow.bias = -0.0005
-    this.scene.add(key)
+    const { group, background, fog, missing } = buildWorld(manifest)
+    this.scene.add(group)
+    this.scene.background = background
+    this.scene.fog = fog
+    this.world = group
+    this.groundPlane = group.getObjectByName('floor')
 
-    // A cool rim from behind, so silhouettes read against the dark ground.
-    const rim = new THREE.DirectionalLight(0x88aacc, 0.7)
-    rim.position.set(-7, 5, -8)
-    this.scene.add(rim)
+    // Said out loud. A shape nobody drew is a place beings can walk to and
+    // nobody can see, and that failing quietly is why this format exists.
+    for (const name of missing) {
+      console.warn(`world: no shape implemented for ${name} — nothing drawn`)
+    }
   }
 
-  _ground() {
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(200, 200),
-      new THREE.MeshStandardMaterial({ color: 0x151a1f, roughness: 1.0 })
-    )
-    floor.rotation.x = -Math.PI / 2
-    floor.receiveShadow = true
-    this.scene.add(floor)
-
-    const grid = new THREE.GridHelper(120, 60, 0x2a3036, 0x1c2126)
-    grid.material.transparent = true
-    grid.material.opacity = 0.4
-    grid.position.y = 0.002
-    this.scene.add(grid)
-
-    this.groundPlane = floor
-  }
 
   setScene(scene) {
     for (const mark of scene.landmarks ?? []) this._landmark(mark)
@@ -115,19 +102,28 @@ export class Stage {
     const group = new THREE.Group()
     group.position.set(pos[0], pos[1], pos[2])
 
-    const pin = new THREE.Mesh(
-      new THREE.ConeGeometry(0.3, 1.0, 6),
-      new THREE.MeshStandardMaterial({ color: 0x3a444e, roughness: 0.9 })
-    )
-    pin.position.y = 0.5
-    pin.castShadow = true
-    group.add(pin)
+    // A nameplate and nothing else. The thing itself is drawn by the world
+    // pack — a cone pin used to stand in for it, which was right when a
+    // landmark was a point on a bare plane and is a second object over the
+    // same spot now that the pond is actually a pond.
     const mark = makePlate(description || id)
-    mark.position.y = 1.5
+    mark.position.y = this._clearanceAt(id)
     group.add(mark)
 
     this.scene.add(group)
     this.landmarks.set(id, group)
+  }
+
+  /** How high a landmark's plate must float to clear what was drawn there. */
+  _clearanceAt(id) {
+    const drawn = this.world?.getObjectByName(`feature:${id}`)
+    if (!drawn) return 1.5
+
+    // Measured rather than taken from the manifest, so a shape that offsets its
+    // own geometry — and every shape here does — cannot put a label inside
+    // itself. The box is local, and the group is already at the feature.
+    const box = new THREE.Box3().setFromObject(drawn)
+    return box.max.y - drawn.position.y + 0.5
   }
 
   _being(id) {
@@ -282,7 +278,9 @@ export class Stage {
       }
     }
 
-    if (!this.selected) return
+    // No world yet means no floor to click on, which happens for the fraction
+    // of a second between the socket opening and the manifest arriving.
+    if (!this.selected || !this.groundPlane) return
     const onGround = this.raycaster.intersectObject(this.groundPlane, false)[0]
     if (onGround && this.onPick) {
       const p = onGround.point
@@ -414,6 +412,24 @@ function setPlate(sprite, text) {
   sprite.scale.set(canvas.width * PLATE_SCALE, canvas.height * PLATE_SCALE, 1)
   // What the next plate up has to clear.
   sprite.userData.height = canvas.height * PLATE_SCALE
+}
+
+/**
+ * Free the GPU memory an object tree holds.
+ *
+ * Removing a group from a scene drops the reference and nothing else; geometry
+ * and materials live on the GPU until told otherwise. Called when a world is
+ * replaced, which is rare — but a viewer left reconnecting to a restarting
+ * server would otherwise leak a whole world each time.
+ */
+function release(root) {
+  root.traverse((node) => {
+    node.geometry?.dispose()
+    for (const material of [node.material].flat()) {
+      material?.map?.dispose()
+      material?.dispose?.()
+    }
+  })
 }
 
 function roundRect(ctx, x, y, w, h, r) {

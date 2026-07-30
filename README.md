@@ -79,9 +79,12 @@ Without it the world still runs; beings appear as capsules.
 |---|---|
 | `src/andropia/sim/` | The simulation. Pure, no dependencies, no clock. |
 | `src/andropia/runtime/` | Sessions, the tick loop, the wire format, the server. |
+| `src/andropia/beings/` | Perception, prompts, the tag protocol, the turn runner. |
 | `src/andropia/packs/` | Avatar packs: bodies a being can wear. |
+| `src/andropia/worlds/` | World packs: places, drawn and described from one file. |
 | `frontend/` | The viewer, and a pose tuner at `/tune`. |
 | `avatars/` | Bundled bodies. See `avatars/README.md`. |
+| `worlds/` | Bundled places. See `worlds/README.md`. |
 
 ## Why deterministic
 
@@ -96,7 +99,7 @@ replay reads the intent log and never calls a model: the run reproduces
 whatever the temperature was, and whether or not the endpoint still exists.
 
 ```bash
-make check   # 354 Python tests, 120 JS tests, none need a browser
+make check   # 388 Python tests, 143 JS tests, none need a browser
 ```
 
 ## Licence

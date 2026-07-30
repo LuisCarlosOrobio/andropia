@@ -15,6 +15,7 @@
 import { connect } from './net.js'
 import { createBodyCache, fetchPacks } from './packs.js'
 import { Stage } from './stage.js'
+import { fetchWorlds } from './world.js'
 
 const stage = new Stage(document.body)
 const hud = {
@@ -49,9 +50,29 @@ fetchPacks()
     hud.status.textContent = 'no avatar packs — showing placeholders'
   })
 
+// World packs, fetched once. The scene message names which one to draw, the
+// same way an entity names its avatar pack — so the numbers that describe this
+// place to the beings living in it are the numbers that draw it.
+const worlds = fetchWorlds().catch((error) => {
+  console.error('[andropia] could not load world packs:', error)
+  return new Map()
+})
+
 const net = connect({
-  onScene: (scene) => {
+  onScene: async (scene) => {
     dtSeconds = scene.dt ?? 0.05
+
+    // The world before the landmarks: a landmark's nameplate floats clear of
+    // whatever was drawn beneath it, so it needs the world to already be there.
+    const found = await worlds
+    const manifest = found.get(scene.world)
+    if (scene.world && !manifest) {
+      console.warn(`[andropia] world pack "${scene.world}" not found`)
+    }
+    // An empty manifest builds the bare grid-on-dark-ground this project
+    // started with, which is the honest rendering of a world with no pack.
+    stage.setWorld(manifest ?? {})
+
     stage.setScene(scene)
   },
   onFrame: (frame) => {

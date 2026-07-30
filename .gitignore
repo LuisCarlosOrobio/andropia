@@ -39,6 +39,12 @@ avatars/*/*.vrm
 avatars/*/RETRIEVED.txt
 worlds/*
 !worlds/README.md
+# The bundled worlds are committed, like `avatars/robot/`. Both test suites
+# read `worlds/example/`, so a clone without it fails `make check` on arrival.
+# A world pack is a single JSON file with no asset in it — there is nothing
+# here that needs fetching.
+!worlds/example/
+!worlds/meadow/
 
 # --- Simulation artifacts ---
 snapshots/

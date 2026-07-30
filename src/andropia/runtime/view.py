@@ -42,10 +42,16 @@ def scene(world: World) -> dict[str, Any]:
 
     Landmarks and dt do not move; re-sending them twenty times a second is
     waste. Kept as a separate call so the per-tick payload stays small.
+
+    ``world`` is the id of the world pack to draw, not the scene itself — the
+    same arrangement as ``pack`` on an entity. The renderer fetches the manifest
+    from ``/api/worlds`` and builds from it, so the numbers that describe the
+    place to beings are the numbers that draw it.
     """
     return {
         "v": WIRE_VERSION,
         "dt": world.dt,
+        "world": world.world_pack,
         "landmarks": [_landmark(m) for m in _stable(world.landmarks)],
     }
 

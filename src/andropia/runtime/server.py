@@ -40,6 +40,7 @@ from ..beings import runner as beings
 from ..demo import autopilot
 from ..packs import discover
 from ..sim import DoGesture, Emote, Goto, Look, MoveTo, Speak, Stop, Vec3, World
+from ..worlds.load import discover as world_packs
 from . import clock, view
 from . import session as sess
 from .session import Session
@@ -47,6 +48,7 @@ from .session import Session
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = REPO_ROOT / "frontend" / "dist"
 AVATARS_DIR = REPO_ROOT / "avatars"
+WORLDS_DIR = REPO_ROOT / "worlds"
 
 _INTENTS = {
     "goto": Goto,
@@ -291,6 +293,24 @@ def create_app(
             "broken": {d: str(r) for d, r in found.items() if not r.ok},
         }
 
+    # -------------------------------------------------------------- worlds
+
+    @app.get("/api/worlds")
+    async def worlds() -> dict[str, Any]:
+        """Every world pack found, including the broken ones.
+
+        The manifest is returned whole rather than summarised. Unlike an avatar
+        pack — where the payload is a model file the browser fetches separately
+        — a world pack *is* its numbers, and the renderer needs all of them. So
+        the same document that `describe.setting` turns into words is the
+        document `world.js` turns into a scene, byte for byte.
+        """
+        found = world_packs(WORLDS_DIR)
+        return {
+            "worlds": {d: _world_manifest(r.pack) for d, r in found.items() if r.ok},
+            "broken": {d: str(r) for d, r in found.items() if not r.ok},
+        }
+
     # Model files. A StaticFiles mount, deliberately — it normalises paths
     # and enforces containment. Hand-rolled path concatenation is what made
     # the previous codebase's file serving a latent arbitrary read.
@@ -323,6 +343,47 @@ def create_app(
 # --------------------------------------------------------------------------
 # internals
 # --------------------------------------------------------------------------
+
+
+def _world_manifest(pack) -> dict[str, Any]:
+    """A validated world pack, as JSON for the renderer.
+
+    Built from the dataclass rather than by re-reading the file, so the renderer
+    receives normalised colours and filled-in defaults and needs no second copy
+    of either rule. `describe.setting` reads the same dataclass, which is what
+    makes the words and the scene one declaration rather than two.
+    """
+    return {
+        "id": pack.id,
+        "name": pack.name,
+        "ground": {
+            "colour": pack.ground.colour,
+            "extent": pack.ground.extent,
+            "grid": pack.ground.grid,
+        },
+        "sky": {"colour": pack.sky.colour, "fog": list(pack.sky.fog or ())},
+        "light": {
+            "key": pack.light.key,
+            "ambient": pack.light.ambient,
+            "sky_colour": pack.light.sky_colour,
+            "ground_colour": pack.light.ground_colour,
+        },
+        "features": [
+            {
+                "id": f.id,
+                "pos": list(f.pos),
+                "shape": f.shape,
+                "radius": f.radius,
+                "height": f.height,
+                "colour": f.colour,
+                # Sent because the renderer should use it too: water ought to
+                # look wet as well as read as wet. One declaration, both halves.
+                "material": f.material,
+            }
+            for f in sorted(pack.features, key=lambda f: f.id)
+        ],
+        "license": {"id": pack.license.id, "attribution": pack.license.attribution},
+    }
 
 
 def _parse_intent(body: dict[str, Any]):
@@ -501,33 +562,23 @@ async def _broadcast(hub: Hub) -> None:
 #: different inhabitants. See :mod:`andropia.identity`.
 DEMO_SEED = 20260729
 
-#: What the demo world is actually like, which is: nothing much.
+#: The world pack the demo world is built from.
 #:
-#: Written honestly on purpose. Beings given the names of things and nothing
-#: about the place invent one — three of them once spent two minutes reporting
-#: the falling water level of a pond that is a point on a flat plane. The
-#: renderer draws a grid on a dark ground and no sky, so that is what this says.
-#:
-#: This is the half of a world pack that describes; the renderer's scene is the
-#: half that draws. They are two strings apart today and must become one
-#: declaration, for exactly the reason avatar packs are one: two sources of
-#: truth about one world will disagree, and the disagreement surfaces as beings
-#: describing scenery that is not there.
-DEMO_SETTING = (
-    "A bare, level expanse of ground under an empty dark sky. No water, no "
-    "plants, no weather, no sound but each other. A faint grid is visible "
-    "underfoot. Three landmarks have been placed here and named, and apart from "
-    "those and each other, there is nothing to see. Nothing has been built here "
-    "yet — it is a space waiting for a world, and saying so plainly is more "
-    "use to you than pretending otherwise."
-)
-
+#: There used to be a paragraph here describing the place, typed by hand, while
+#: the scene itself was a set of constants in `stage.js`. Nothing connected them,
+#: so the description could say "lush meadow" over a dark void and no test would
+#: notice — and three beings once spent two minutes reporting the falling water
+#: level of a pond that was a point on a flat plane. Both halves now come from
+#: `worlds/meadow/world.json`: `describe.setting` writes the words, `world.js`
+#: draws the scene, and the numbers are read from the same file.
+DEMO_WORLD_PACK = "meadow"
 
 def demo_world() -> World:
     """A small world to look at, for `python -m andropia.runtime.server`."""
     from ..identity import cast as draw_cast
-    from ..sim import Entity, Landmark, Vec3
+    from ..sim import Entity, Vec3
     from ..sim import rng as prng
+    from ..worlds import build, describe, load
 
     people, _ = draw_cast(prng.seed(DEMO_SEED), 3)
     # One VRM and two glTF bodies, assigned in draw order rather than by name —
@@ -535,23 +586,32 @@ def demo_world() -> World:
     packs = ("ava", "robot", "robot")
     places = (Vec3(0.0, 0.0, 0.0), Vec3(4.0, 0.0, 2.0), Vec3(-3.0, 0.0, 3.0))
 
+    entities = {
+        who.name: Entity(
+            id=who.name,
+            pos=pos,
+            avatar_pack=pack,
+            persona=who.persona,
+        )
+        for who, pack, pos in zip(people, packs, places, strict=True)
+    }
+
+    result = load.load_pack(WORLDS_DIR / DEMO_WORLD_PACK)
+    if not result.ok:
+        # Loud rather than silent. A world that failed to load leaves beings in a
+        # void with no explanation, and the last time something failed quietly it
+        # cost an evening working out why nobody was speaking.
+        for error in result.errors:
+            print(f"world pack {DEMO_WORLD_PACK}: {error}")
+        return World(entities=entities)
+
     return World(
-        setting=DEMO_SETTING,
-        entities={
-            who.name: Entity(
-                id=who.name,
-                pos=pos,
-                avatar_pack=pack,
-                persona=who.persona,
-            )
-            for who, pack, pos in zip(people, packs, places, strict=True)
-        },
-        landmarks={
-            "tree": Landmark("tree", Vec3(12.0, 0.0, -4.0), "the old tree"),
-            "pond": Landmark("pond", Vec3(-8.0, 0.0, 3.0), "the pond"),
-            "rock": Landmark("rock", Vec3(5.0, 0.0, 9.0), "a mossy rock"),
-        },
+        entities=entities,
+        landmarks=build.landmarks(result.pack),
+        setting=describe.setting(result.pack),
+        world_pack=DEMO_WORLD_PACK,
     )
+
 
 
 def demo_cast(world: World) -> tuple[beings.Cast | None, str, object]:

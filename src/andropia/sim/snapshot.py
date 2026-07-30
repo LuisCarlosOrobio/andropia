@@ -69,6 +69,7 @@ def to_dict(world: World) -> dict[str, Any]:
         "landmarks": {lid: _enc(m) for lid, m in sorted(world.landmarks.items())},
         "transcript": [_enc(u) for u in world.transcript],
         "setting": world.setting,
+        "world_pack": world.world_pack,
     }
 
 
@@ -88,6 +89,7 @@ def from_dict(d: dict[str, Any]) -> World:
         landmarks={lid: _dec_landmark(m) for lid, m in d["landmarks"].items()},
         transcript=tuple(_dec_utterance(u) for u in d["transcript"]),
         setting=d["setting"],
+        world_pack=d["world_pack"],
     )
 
 
@@ -178,7 +180,14 @@ def _dec_speech(d: dict[str, Any] | None) -> Speech | None:
 
 
 def _dec_landmark(d: dict[str, Any]) -> Landmark:
-    return Landmark(id=d["id"], pos=_vec(d["pos"]), description=d["description"])
+    return Landmark(
+        id=d["id"],
+        pos=_vec(d["pos"]),
+        description=d["description"],
+        material=d["material"],
+        enterable=d["enterable"],
+        radius=d["radius"],
+    )
 
 
 def _dec_utterance(d: dict[str, Any]) -> Utterance:
